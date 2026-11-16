@@ -27,9 +27,9 @@ Always open it from the home-screen icon: on iPhone the installed app and the Sa
 
 ## Turn on sync (free, about 5 minutes, done once)
 
-1. Create a free account at [supabase.com](https://supabase.com) and a new project (any name, a region near you).
+1. Create a free account at [supabase.com](https://supabase.com) and a new project (any name, a region near you). Keep **Enable Data API** on; **Automatically expose new tables** can be off.
 2. In the project open **SQL Editor**, paste the whole of [`supabase/schema.sql`](supabase/schema.sql), and press **Run**.
-3. In **Project Settings → API** copy the **Project URL** and the **anon / publishable** key.
+3. Copy the **Project URL** (shown on the project's home page and under **Project Settings → Data API**) and the **publishable key** (`sb_publishable_…`, under **Project Settings → API Keys**). An older-style **anon** key works too. Never use the **secret** / **service_role** key.
 4. On the first phone: **More → Sync between phones → Set up first phone**, paste both values, **Connect**. It uploads everything.
 5. The same screen now shows a **pairing code**. Send it to the second phone and paste it under **More → Sync between phones → I have a pairing code**.
 

@@ -33,7 +33,9 @@ export function parsePairing(code) {
 async function rpc(cfg, fn, body) {
   const res = await fetch(`${cfg.url.replace(/\/+$/, '')}/rest/v1/rpc/${fn}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', apikey: cfg.key, Authorization: `Bearer ${cfg.key}` },
+    // Legacy anon keys are JWTs and also go in Authorization. New publishable keys (sb_publishable_…)
+    // are not JWTs and must only be sent as `apikey`.
+    headers: { 'Content-Type': 'application/json', apikey: cfg.key, ...(cfg.key.startsWith('eyJ') ? { Authorization: `Bearer ${cfg.key}` } : {}) },
     body: JSON.stringify(body),
   });
   if (!res.ok) {
