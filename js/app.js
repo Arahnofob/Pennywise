@@ -661,5 +661,10 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && ui.sheet
   sync.start();
   render();
   document.addEventListener('visibilitychange', async () => { if (!document.hidden) { await runRecurring(); if (!ui.sheet) render(); } });
-  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+  if ('serviceWorker' in navigator && location.protocol === 'https:') {
+    // When an updated version takes over, reload once so the new screens appear (not while a form is open).
+    const had = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener('controllerchange', () => { if (had && !ui.sheet) location.reload(); });
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((r) => r.update()).catch(() => {});
+  }
 })();

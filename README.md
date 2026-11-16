@@ -18,8 +18,8 @@ A private money tracker for two. It is a web app that installs to the home scree
 
 ## Put it on your phones
 
-1. On GitHub open this repository's **Settings → Pages**. Under **Source** keep **Deploy from a branch**, pick the branch and the **/ (root)** folder, and press **Save**. (Free GitHub accounts need the repository to be public for Pages. The code contains no personal data.)
-2. After a minute or two the same page shows the address, `https://<your-user>.github.io/Pennywise/`. Every later push updates it automatically.
+1. On GitHub open this repository's **Settings → Pages** and set **Source** to **GitHub Actions**. (Free GitHub accounts need the repository to be public for Pages. The code contains no personal data.)
+2. Every push then publishes automatically through the **Deploy to GitHub Pages** workflow (Actions tab). The app is at `https://<your-user>.github.io/Pennywise/`.
 3. On each iPhone open that address in **Safari**, tap **Share → Add to Home Screen**. On Android use Chrome's **Install app**.
 4. Open Pennywise from the home screen and choose **Import my Monefy history** (first phone) or **Join my partner's Pennywise** (second phone, once sync is set up).
 
@@ -60,5 +60,5 @@ Then open `http://localhost:8765`.
 | `js/charts.js` | Category bars and trend chart |
 | `js/i18n.js` | English / Ukrainian texts |
 | `js/lock.js` | PIN lock screen |
-| `sw.js` | Offline cache (bump `CACHE` when you change files) |
+| `sw.js` | Offline cache (network first, so updates appear on the next open) |
 | `supabase/schema.sql` | Database table and functions for sync |
