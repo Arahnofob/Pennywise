@@ -49,10 +49,13 @@ const signed = (n) => `${n < 0 ? '−' : ''}${fmt(Math.abs(n))}`;
 // Recurring payments are either monthly (on a day of the month) or every 2 weeks (from a first date).
 // Each generated transaction's id comes from the rule and its date, so two phones never create duplicates,
 // and a generated payment you delete stays deleted.
-const isBiweekly = (r) => r.freq === 'biweekly' && /^\d{4}-\d{2}-\d{2}$/.test(r.first || '');
+// Weekly and every-2-weeks rules repeat a fixed number of days from their first payment date.
+const STEP = { weekly: 7, biweekly: 14 };
+const isBiweekly = (r) => !!STEP[r.freq] && /^\d{4}-\d{2}-\d{2}$/.test(r.first || '');
+const freqLabel = (f) => (f === 'weekly' ? t('Every week') : t('Every 2 weeks'));
 function biweeklyDates(r, until, limit = 2000) {
   const [y, m, d] = r.first.split('-').map(Number), out = [];
-  for (let k = 0; k < limit; k++) { const date = isoDate(new Date(y, m - 1, d + 14 * k)); if (date > until) break; out.push(date); }
+  for (let k = 0; k < limit; k++) { const date = isoDate(new Date(y, m - 1, d + STEP[r.freq] * k)); if (date > until) break; out.push(date); }
   return out;
 }
 const monthlyDate = (r, m) => `${m}-${String(Math.min(r.day, daysInMonth(m))).padStart(2, '0')}`;
@@ -61,7 +64,7 @@ function nextRun(r) {
   const now = today();
   if (isBiweekly(r)) {
     const [y, m, d] = r.first.split('-').map(Number);
-    for (let k = 0; k < 5000; k++) { const date = isoDate(new Date(y, m - 1, d + 14 * k)); if (date > now) return date; }
+    for (let k = 0; k < 5000; k++) { const date = isoDate(new Date(y, m - 1, d + STEP[r.freq] * k)); if (date > now) return date; }
     return null;
   }
   for (let m = curMonth(), i = 0; i < 3; i++, m = addMonths(m, 1)) { const date = monthlyDate(r, m); if (date > now && date >= (r.startDate || '')) return date; }
@@ -324,7 +327,7 @@ function viewMore() {
     <h2>${t('Recurring payments')}</h2>
     <div class="card list">
       ${recs.map((r) => { const c = catOf(r.catId); return `<button class="tx" data-act="edit-rec" data-id="${esc(r.id)}"><span class="ico" aria-hidden="true">${esc(c.icon)}</span>
-        <span class="tx-main"><span class="tx-title">${esc(r.note || c.name)}</span><span class="tx-sub">${isBiweekly(r) ? t('Every 2 weeks') : t('Day {0} of every month', r.day)}${!r.active ? ' · ' + t('paused') : nextRun(r) ? ' · ' + t('next {0}', dayLabel(nextRun(r))) : ''}</span></span>
+        <span class="tx-main"><span class="tx-title">${esc(r.note || c.name)}</span><span class="tx-sub">${isBiweekly(r) ? freqLabel(r.freq) : t('Day {0} of every month', r.day)}${!r.active ? ' · ' + t('paused') : nextRun(r) ? ' · ' + t('next {0}', dayLabel(nextRun(r))) : ''}</span></span>
         <span class="amt ${r.type}">${r.type === 'expense' ? '−' : '+'}${fmt(r.amount)}</span></button>`; }).join('')}
       ${item('new-rec', '＋', t('Add recurring payment'), t('Rent, subscriptions, salary…'))}
     </div>
@@ -417,14 +420,14 @@ const SHEETS = {
   rec: (d) => [d.id ? t('Edit recurring payment') : t('New recurring payment'), `
     ${typeSeg(d)}${amountField(d)}
     <label>${t('Category')}</label>${catPicker(d)}
-    <label>${t('How often')}</label>${seg('freq', d.freq, [['monthly', t('Monthly')], ['biweekly', t('Every 2 weeks')]])}
-    <div class="row2"><div>${d.freq === 'biweekly'
+    <label>${t('How often')}</label>${seg('freq', d.freq, [['weekly', t('Every week')], ['biweekly', t('Every 2 weeks')], ['monthly', t('Monthly')]])}
+    <div class="row2"><div>${STEP[d.freq]
       ? `<label for="f-first">${t('First payment')}</label><input id="f-first" type="date" data-f="first" value="${esc(d.first || '')}" max="2100-12-31" required>`
       : `<label for="f-day">${t('Day of month')}</label><input id="f-day" type="number" min="1" max="31" data-f="day" value="${esc(d.day)}" inputmode="numeric" required>`}</div>
     <div><label for="f-note">${t('Name')}</label><input id="f-note" data-f="note" value="${esc(d.note || '')}" placeholder="${t('e.g. Rent')}" autocomplete="off" maxlength="120"></div></div>
     ${whoPicker(d)}
     <label>${t('Status')}</label>${seg('active', d.active ? '1' : '0', [['1', t('Active')], ['0', t('Paused')]])}
-    <p class="hint">${d.freq === 'biweekly' ? t('Repeats every 14 days from the first payment. If that date is in the past, the payments since then are added right away.') : t('Added automatically each month, starting the next time that day comes around.')}</p>${actions(d)}`],
+    <p class="hint">${d.freq === 'weekly' ? t('Repeats every 7 days from the first payment. If that date is in the past, the payments since then are added right away.') : d.freq === 'biweekly' ? t('Repeats every 14 days from the first payment. If that date is in the past, the payments since then are added right away.') : t('Added automatically each month, starting the next time that day comes around.')}</p>${actions(d)}`],
   budget: (d) => [t('Budget for {0}', esc(catOf(d.catId).name)), `
     <label>${t('Monthly limit')}</label>${amountField(d)}
     <p class="hint">${t('Leave empty and save to remove the budget.')}</p>${actions({})}`],
@@ -520,12 +523,12 @@ const SUBMIT = {
   },
   async rec(d) {
     const amount = readTxDraft(d); if (!amount) return;
-    const biweekly = d.freq === 'biweekly', day = Math.round(Number(d.day));
+    const biweekly = !!STEP[d.freq], day = Math.round(Number(d.day));
     if (biweekly && !/^\d{4}-\d{2}-\d{2}$/.test(d.first || '')) return toast(t('Pick a date.'));
     if (!biweekly && !(day >= 1 && day <= 31)) return toast(t('Day must be between 1 and 31.'));
     const old = d.id ? store.get(d.id) : null;
     await store.save({ ...(old || {}), id: d.id || 'rec:' + uid(), kind: 'rec', type: d.type, amount, catId: d.catId, note: (d.note || '').trim(), who: d.who || '',
-      freq: biweekly ? 'biweekly' : 'monthly', first: biweekly ? d.first : '', day: biweekly ? (old?.day || Number(d.first.slice(8))) : day,
+      freq: biweekly ? d.freq : 'monthly', first: biweekly ? d.first : '', day: biweekly ? (old?.day || Number(d.first.slice(8))) : day,
       active: d.active, start: old?.start || curMonth(), startDate: old?.startDate || today() });
     const n = await runRecurring();
     closeSheet(); render(); toast(n ? t('Recurring payment saved. Payments added up to today: {0}.', n) : t('Recurring payment saved.'));
@@ -633,7 +636,7 @@ const ACTIONS = {
   },
   'edit-tx'(el) { const x = store.get(el.dataset.id); if (x) openSheet('tx', { ...x, amountText: fmtInput(x.amount) }); },
   'new-rec'() { if (!cats().length) return toast(t('Add a category first (More → Categories).')); openSheet('rec', { type: 'expense', freq: 'monthly', day: new Date().getDate(), first: today(), active: true }, '[data-f=amountText]'); },
-  'edit-rec'(el) { const r = store.get(el.dataset.id); if (r) openSheet('rec', { ...r, freq: isBiweekly(r) ? 'biweekly' : 'monthly', first: r.first || today(), amountText: fmtInput(r.amount) }); },
+  'edit-rec'(el) { const r = store.get(el.dataset.id); if (r) openSheet('rec', { ...r, freq: isBiweekly(r) ? r.freq : 'monthly', first: r.first || today(), amountText: fmtInput(r.amount) }); },
   'edit-budget'(el) { const b = store.get('budget:' + el.dataset.id); openSheet('budget', { catId: el.dataset.id, amountText: b ? fmtInput(b.limit) : '' }, '[data-f=amountText]'); },
   'new-goal'() { openSheet('goal', { icon: '🎯' }, '#f-name'); },
   'edit-goal'(el) { const g = store.get(el.dataset.id); if (g) openSheet('goal', { ...g, targetText: fmtInput(g.target), savedText: fmtInput(g.saved) }, '#f-add'); },
