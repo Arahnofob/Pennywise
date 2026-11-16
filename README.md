@@ -14,8 +14,8 @@ A private money tracker for two. It is a web app that installs to the home scree
 
 ## Put it on your phones
 
-1. On GitHub open this repository's **Settings → Pages** and set **Source** to **GitHub Actions**. (Free GitHub accounts need the repository to be public for Pages. The code contains no personal data.)
-2. Push to the default branch, or run the **Deploy to GitHub Pages** workflow from the **Actions** tab. The app appears at `https://<your-user>.github.io/Pennywise/`.
+1. On GitHub open this repository's **Settings → Pages**. Under **Source** keep **Deploy from a branch**, pick the branch and the **/ (root)** folder, and press **Save**. (Free GitHub accounts need the repository to be public for Pages. The code contains no personal data.)
+2. After a minute or two the same page shows the address, `https://<your-user>.github.io/Pennywise/`. Every later push updates it automatically.
 3. On each iPhone open that address in **Safari**, tap **Share → Add to Home Screen**. On Android use Chrome's **Install app**.
 4. Open Pennywise from the home screen and choose **Import my Monefy history** (first phone) or **Join my partner's Pennywise** (second phone, once sync is set up).
 
