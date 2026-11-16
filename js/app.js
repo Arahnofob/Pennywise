@@ -513,7 +513,11 @@ const SUBMIT = {
     let cfg;
     if (d.mode === 'join') { cfg = sync.parsePairing(d.code || ''); if (!cfg) return toast(t('That pairing code is not valid.')); }
     else {
-      const url = (d.url || '').trim(), key = (d.key || '').trim();
+      let url = (d.url || '').trim().replace(/\/+$/, '').replace(/\/rest\/v1$/, ''), key = (d.key || '').trim();
+      // Accept a pasted dashboard link (supabase.com/dashboard/project/<ref>) as well as the project URL.
+      const ref = url.match(/supabase\.com\/dashboard\/project\/([a-z0-9]+)/i);
+      if (ref) url = `https://${ref[1]}.supabase.co`;
+      else if (/^[a-z0-9]{20}$/i.test(url)) url = `https://${url}.supabase.co`;
       if (!/^https?:\/\/.+/.test(url) || !key) return toast(t('Enter the project URL and key.'));
       cfg = { url, key, household: sync.newHousehold() };
     }
