@@ -16,8 +16,23 @@ const DEFAULT_CATS = [
   ['Fun', 'expense', '🎬'], ['Gifts', 'expense', '🎁'], ['Phone', 'expense', '📱'], ['Pets', 'expense', '🐾'],
   ['Salary', 'income', '💼'], ['Other income', 'income', '💰'],
 ];
-const ICON_CHOICES = '🛒 ☕ 🍽️ 🏠 🧾 💡 🚗 ⛽ 🚌 🚕 ✈️ 💊 🧴 👕 🎬 🎮 🎁 📱 🌐 🐾 🏋️ 🎓 🧸 🛠️ 📦 💼 💰 🏦 🐖 📈 🏷️'.split(' ');
-const GOAL_ICONS = '🎯 ✈️ 🏠 🚗 🛟 🎓 💍 👶 🏖️ 💻 🐖 🎁'.split(' ');
+// Emoji picker for categories and goals, grouped by theme. Any other emoji can be typed in the box below it.
+const ICON_GROUPS = [
+  ['Food & drink', '🛒 🍎 🥦 🥩 🍞 🧀 🥚 🥛 🍕 🍔 🌮 🍣 🍜 🥗 🍰 🍩 🍫 🍿 🍽️ ☕ 🧋 🍺 🍷 🍸'],
+  ['Home & bills', '🏠 🏡 🏢 🔑 🛋️ 🛏️ 🧹 🧺 🧻 🪴 🛠️ 🔧 💡 🔥 💧 🧾 📄 🌐 📡 📱 💻 📺 🔌 🗑️'],
+  ['Transport & travel', '🚗 🚙 ⛽ 🔋 🅿️ 🚌 🚇 🚆 🚕 🚲 🛴 🛵 ✈️ 🧳 🏨 🏖️ ⛰️ 🏕️ 🗺️ 🚢 🛞 🧽 🪪 🎫'],
+  ['Health & care', '💊 🩺 🏥 🦷 👓 🧴 🧼 🪥 💇 💅 💄 🧖 🩹 🧘 🏋️ 🏃 🚴 🏊 ⚽ 🎾 🥊 ⛷️ 🛌 ❤️'],
+  ['Shopping', '🛍️ 👕 👖 👗 👟 👠 🧥 🧣 👜 🎒 💍 ⌚ 🕶️ 🎁 📦 🏷️ 🧸 🪑 🖥️ 🎧 📷 🖨️ ✂️ 🧵'],
+  ['Fun & hobbies', '🎬 🎮 🎲 🎨 🎸 🎹 🎤 🎟️ 🎭 🎳 📚 📖 📰 🎵 🧩 🎣 🪁 🎉 🎂 🎄 🎃 🌸 ⛳ 🃏'],
+  ['Family & pets', '👶 🍼 🧒 👨‍👩‍👧 💑 💒 👵 🎓 🏫 ✏️ 🐶 🐱 🐾 🐟 🐦 🐰 🦴 🐠 🌱 🌻 🙏 ⛪ 🕯️ 🤝'],
+  ['Money & work', '💰 💵 💳 🏦 🐖 📈 📉 💼 🧑‍💻 🏗️ 📊 🪙 💸 🧮 📝 📅 🛟 🎯 🏆 ⭐ 🔒 ⚖️ 🏛️ 🧑‍⚕️'],
+].map(([name, list]) => [name, list.split(' ')]);
+const firstGrapheme = (s) => {
+  s = (s || '').trim();
+  if (!s) return '';
+  try { return new Intl.Segmenter().segment(s)[Symbol.iterator]().next().value.segment; } catch { return Array.from(s)[0]; }
+};
+const pickedIcon = (d, fallback) => firstGrapheme(d.iconText) || d.icon || fallback;
 
 /* ---------- data helpers ---------- */
 const cats = (type) => store.all('cat').filter((c) => !type || c.type === type).sort((a, b) => a.name.localeCompare(b.name));
@@ -369,7 +384,10 @@ const catPicker = (d) => {
 const whoPicker = (d) => people().length ? `<label>${t('Who')}</label>${seg('who', d.who || '', [['', t('Shared')], ...people().map((p) => [esc(p), esc(p)])])}` : '';
 const amountField = (d, f = 'amountText') => `<div class="amount"><span>$</span><input data-f="${f}" inputmode="decimal" placeholder="0.00" value="${esc(d[f] || '')}" aria-label="${t('Amount in Canadian dollars')}" autocomplete="off"></div>`;
 const moneyInput = (d, f, id) => `<input id="${id}" data-f="${f}" inputmode="decimal" placeholder="0.00" value="${esc(d[f] || '')}" autocomplete="off">`;
-const iconGrid = (d, list) => `<div class="icon-grid">${list.map((i) => `<button type="button" class="${d.icon === i ? 'on' : ''}" data-act="set" data-f="icon" data-v="${i}" aria-pressed="${d.icon === i}">${i}</button>`).join('')}</div>`;
+const iconGrid = (d) => `<div class="icon-picker">${ICON_GROUPS.map(([name, list]) => `<div class="icon-group">${t(name)}</div>
+    <div class="icon-grid">${list.map((i) => `<button type="button" class="${d.icon === i && !d.iconText ? 'on' : ''}" data-act="set" data-f="icon" data-v="${i}" aria-pressed="${d.icon === i}">${i}</button>`).join('')}</div>`).join('')}</div>
+    <div class="icon-custom"><span class="icon-now" aria-hidden="true">${esc(pickedIcon(d, '🏷️'))}</span>
+    <input data-f="iconText" value="${esc(d.iconText || '')}" placeholder="${t('Or type any emoji')}" aria-label="${t('Or type any emoji')}" autocomplete="off" maxlength="16"></div>`;
 const actions = (d, label = t('Save')) => `<div class="actions">${d.id ? `<button type="button" class="btn danger" data-act="sheet-delete">${t('Delete')}</button>` : ''}<button type="submit" class="btn primary">${label}</button></div>`;
 
 const SHEETS = {
@@ -399,11 +417,11 @@ const SHEETS = {
     <div><label for="f-saved">${t('Saved so far')}</label>${moneyInput(d, 'savedText', 'f-saved')}</div></div>
     ${d.id ? `<label for="f-add">${t('Add to it now')}</label>${moneyInput(d, 'addText', 'f-add')}` : ''}
     <label for="f-deadline">${t('Target date (optional)')}</label><input id="f-deadline" type="date" data-f="deadline" value="${esc(d.deadline || '')}" max="2100-12-31">
-    <label>${t('Icon')}</label>${iconGrid(d, GOAL_ICONS)}${actions(d)}`],
+    <label>${t('Icon')}</label>${iconGrid(d)}${actions(d)}`],
   cat: (d) => [d.id ? t('Edit category') : t('New category'), `
     ${d.id ? '' : typeSeg(d)}
     <label for="f-name">${t('Name')}</label><input id="f-name" data-f="name" value="${esc(d.name || '')}" required maxlength="40" autocomplete="off">
-    <label>${t('Icon')}</label>${iconGrid(d, ICON_CHOICES)}${actions(d)}`],
+    <label>${t('Icon')}</label>${iconGrid(d)}${actions(d)}`],
   people: (d) => [t('People'), `
     <label for="f-p1">${t('First person')}</label><input id="f-p1" data-f="p1" value="${esc(d.p1 || '')}" maxlength="24" autocomplete="off">
     <label for="f-p2">${t('Second person')}</label><input id="f-p2" data-f="p2" value="${esc(d.p2 || '')}" maxlength="24" autocomplete="off">
@@ -506,7 +524,7 @@ const SUBMIT = {
     if (!name) return toast(t('Give it a name.'));
     if (!target) return toast(t('Enter a target amount.'));
     const saved = (parseAmount(d.savedText) || 0) + (parseAmount(d.addText) || 0);
-    await store.save({ id: d.id || 'goal:' + uid(), kind: 'goal', name, target, saved, deadline: /^\d{4}-\d{2}-\d{2}$/.test(d.deadline || '') ? d.deadline : '', icon: d.icon || '🎯' });
+    await store.save({ id: d.id || 'goal:' + uid(), kind: 'goal', name, target, saved, deadline: /^\d{4}-\d{2}-\d{2}$/.test(d.deadline || '') ? d.deadline : '', icon: pickedIcon(d, '🎯') });
     closeSheet(); render(); toast(t('Saved.'));
   },
   async cat(d) {
@@ -514,7 +532,7 @@ const SUBMIT = {
     if (!name) return toast(t('Give it a name.'));
     const id = d.id || catId(name, d.type);
     if ((!d.id && store.get(id)) || cats(d.type).some((c) => c.id !== id && c.name.toLowerCase() === name.toLowerCase())) return toast(t('That category already exists.'));
-    await store.save({ id, kind: 'cat', name, type: d.type, icon: d.icon || guessIcon(name, d.type) });
+    await store.save({ id, kind: 'cat', name, type: d.type, icon: pickedIcon(d, guessIcon(name, d.type)) });
     closeSheet(); render();
   },
   async people(d) {
@@ -613,6 +631,7 @@ const ACTIONS = {
   set(el) {
     const d = ui.sheet.d, f = el.dataset.f; let v = el.dataset.v;
     if (f === 'lang') { setLang(v); render(); return renderSheet(); }
+    if (f === 'icon') d.iconText = '';
     if (f === 'active') v = v === '1';
     d[f] = v;
     if (f === 'type' && d.catId && store.get(d.catId)?.type !== v) d.catId = null;
@@ -680,6 +699,7 @@ document.addEventListener('input', (e) => {
   if (e.target.id === 'q') { ui.q = e.target.value; render(); return; }
   const f = e.target.dataset?.f;
   if (f && ui.sheet) ui.sheet.d[f] = e.target.value;
+  if (f === 'iconText' && ui.sheet) { const now = $('#sheet .icon-now'); if (now) now.textContent = pickedIcon(ui.sheet.d, '🏷️'); $('#sheet .icon-grid .on')?.classList.remove('on'); }
 });
 document.addEventListener('submit', (e) => { e.preventDefault(); if (ui.sheet) SUBMIT[ui.sheet.type](ui.sheet.d); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && ui.sheet) closeSheet(); });
