@@ -9,7 +9,7 @@ A private money tracker for two. It is a web app that installs to the home scree
 - **Budgets**: a monthly limit per category, with what is left or how far over you are.
 - **Savings goals** with a target, progress and how much to put aside each month to hit a date.
 - **Year in review**: saved, savings rate, average month, most and least expensive months, where the money went.
-- **Recurring payments**: rent, subscriptions, salary; added automatically each month.
+- **Recurring payments**: monthly (rent, subscriptions) or every 2 weeks from a first date you pick (paycheques); added automatically.
 - **Monefy import**: reads the CSV exported from Monefy. Importing the same file twice never creates duplicates.
 - **English and Ukrainian** interface, chosen per phone (More → Language).
 - **App lock** with a 4-digit PIN (More → App lock). It is a privacy screen, set per phone; the data itself is not encrypted.
