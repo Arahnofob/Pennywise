@@ -6,7 +6,7 @@ A private money tracker for two. It is a web app that installs to the home scree
 
 - **Expenses and income** with category, date, note and (optionally) who paid.
 - **Overview** per month: balance, spending by category, spending by person, six-month trend.
-- **Budgets**: a monthly limit per category, with what is left or how far over you are.
+- **Budgets**: a budget for the whole month and optional limits per category. Pennywise warns you at 80% and 90% of the monthly budget and when you go over (on each phone, while the app is open).
 - **Savings goals** with a target, progress and how much to put aside each month to hit a date.
 - **Year in review**: saved, savings rate, average month, most and least expensive months, where the money went.
 - **Recurring payments**: monthly (rent, subscriptions), weekly or every 2 weeks from a first date you pick (paycheques); added automatically.

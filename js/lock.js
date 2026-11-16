@@ -35,7 +35,7 @@ export function lock() {
   if (!isSet()) return;
   entered = ''; el().hidden = false; document.body.classList.add('locked'); draw();
 }
-function unlock() { el().hidden = true; el().innerHTML = ''; document.body.classList.remove('locked'); }
+function unlock() { el().hidden = true; el().innerHTML = ''; document.body.classList.remove('locked'); document.dispatchEvent(new Event('pw-unlocked')); }
 
 async function press(key) {
   if (key === 'forgot') return onForgot();

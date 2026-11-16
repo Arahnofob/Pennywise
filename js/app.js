@@ -98,6 +98,48 @@ async function ensureInvestments() {
   await store.save({ id, kind: 'cat', name: t('Investments'), type: 'expense', icon: '📈' });
 }
 
+/* ---------- monthly budget + alerts ---------- */
+// The whole-month budget is stored like a category budget under a reserved id; every expense counts toward it.
+const TOTAL = '__month';
+const catBudgets = () => store.all('budget').filter((b) => b.catId !== TOTAL);
+const monthBudget = () => store.get('budget:' + TOTAL)?.limit || 0;
+const ALERT_LEVELS = [100, 90, 80];
+const levelOf = (pct) => ALERT_LEVELS.find((l) => pct >= l) || 0;
+const pctClass = (pct) => (pct >= 90 ? 'over' : pct >= 80 ? 'warn' : '');
+
+// Checks this month's spending against the monthly budget and tells you once per level (80%, 90%, over),
+// on each phone. It runs when the app opens and whenever an expense is added here or arrives by sync.
+// Without a server, alerts can only appear while the app is open.
+let alertTimer;
+function checkBudgetAlert() {
+  clearTimeout(alertTimer);
+  alertTimer = setTimeout(() => {
+    const limit = monthBudget(), m = curMonth();
+    if (!limit || lock.isLocked()) return;
+    const spent = sum(txs().filter((x) => x.date.startsWith(m)), 'expense');
+    const pct = (spent / limit) * 100, level = levelOf(pct);
+    let seen = {};
+    try { seen = JSON.parse(localStorage.getItem('pw-budget-alert')) || {}; } catch {}
+    const prev = seen.month === m ? seen.level : 0;
+    if (level !== prev) try { localStorage.setItem('pw-budget-alert', JSON.stringify({ month: m, level })); } catch {}
+    if (level <= prev) return;
+    const title = level === 100 ? t('Monthly budget exceeded') : t('{0}% of the monthly budget used', level);
+    const body = level === 100 ? t('Spent {0} of {1} this month, {2} over.', fmt(spent), fmt(limit), fmt(spent - limit))
+      : t('Spent {0} of {1} this month. {2} left.', fmt(spent), fmt(limit), fmt(limit - spent));
+    if (ui.sheet) toast(`⚠ ${title}. ${body}`);
+    else openSheet('notice', { title: '⚠ ' + title, text: body });
+    systemNotify(title, body);
+  }, 700);
+}
+async function systemNotify(title, body) {
+  try {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    const reg = await navigator.serviceWorker?.getRegistration();
+    if (reg) await reg.showNotification(title, { body, icon: 'icons/icon-192.png', tag: 'pw-budget' });
+    else new Notification(title, { body, icon: 'icons/icon-192.png' });
+  } catch {}
+}
+
 /* ---------- chrome ---------- */
 const svg = (d) => `<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
 const TABS = [
@@ -169,15 +211,17 @@ function viewHome() {
   const idx = new Map(months.map((m) => [m.month, m]));
   for (const x of all) { const m = idx.get(x.date.slice(0, 7)); if (m) m[x.type] += x.amount; }
 
-  const budgets = store.all('budget');
+  const budgets = catBudgets(), total = monthBudget();
   let budgetStrip = '';
-  if (budgets.length) {
-    const limit = budgets.reduce((s, b) => s + b.limit, 0);
-    const used = budgets.reduce((s, b) => s + (spend.find((c) => c.id === b.catId)?.amount || 0), 0);
-    const left = limit - used;
+  if (total || budgets.length) {
+    const limit = total || budgets.reduce((s, b) => s + b.limit, 0);
+    const used = total ? exp : budgets.reduce((s, b) => s + (spend.find((c) => c.id === b.catId)?.amount || 0), 0);
+    const left = limit - used, pct = (used / (limit || 1)) * 100;
+    const head = left < 0 ? t('⚠ {0} over', fmt(-left)) : pct >= 80 ? `⚠ ${t('{0}% used', Math.floor(pct))} · ${t('{0} left', fmt(left))}` : t('{0} left', fmt(left));
     budgetStrip = `<button class="card strip" data-act="tab" data-v="plan">
-      <span><b>${left >= 0 ? t('{0} left', fmt(left)) : t('⚠ {0} over', fmt(-left))}</b> ${t('of {0} budgeted', fmt(limit))}</span>
-      <span class="track"><span class="fill ${left < 0 ? 'over' : ''}" style="width:${Math.min((used / (limit || 1)) * 100, 100)}%"></span></span>
+      <span>${left < 0 ? `<b class="alert-text">${total ? t('⚠ {0} over the {1} monthly budget', fmt(-left), fmt(limit)) : t('⚠ {0} over the {1} budget', fmt(-left), fmt(limit))}</b>`
+        : `<b class="${pct >= 80 ? 'alert-text' : ''}">${head}</b> ${total ? t('of the {0} monthly budget', fmt(limit)) : t('of {0} budgeted', fmt(limit))}`}</span>
+      <span class="track"><span class="fill ${pctClass(pct)}" style="width:${Math.min(pct, 100)}%"></span></span>
     </button>`;
   }
   const ppl = people();
@@ -312,6 +356,17 @@ function viewPlan() {
         <span class="budget-note ${left < 0 ? 'over' : ''}">${left < 0 ? t('⚠ Over by {0}', fmt(-left)) : t('{0} left', fmt(left))}</span>` : `<span class="budget-note">${t('No budget · tap to set')}</span>`}
       </span></button>`;
   };
+  const monthRow = () => {
+    const limit = monthBudget(), used = sum(list, 'expense'), left = limit - used, pct = limit ? (used / limit) * 100 : 0;
+    return `<div class="card list month-budget"><button class="budget" data-act="edit-budget" data-id="${TOTAL}">
+      <span class="ico" aria-hidden="true">🗓️</span>
+      <span class="bar-main">
+        <span class="bar-head"><span class="bar-name">${t('Whole month')}</span><span class="bar-val">${fmt(used)}${limit ? ` <small>${t('of {0}', fmt(limit))}</small>` : ''}</span></span>
+        ${limit ? `<span class="track"><span class="fill ${pctClass(pct)}" style="width:${Math.min(pct, 100)}%"></span></span>
+        <span class="budget-note ${pct >= 80 ? 'over' : ''}">${left < 0 ? t('⚠ Over by {0}', fmt(-left)) : `${pct >= 80 ? '⚠ ' : ''}${Math.floor(pct)}% · ${t('{0} left', fmt(left))}`}</span>`
+        : `<span class="budget-note">${t('No monthly budget · tap to set')}</span>`}
+      </span></button></div>`;
+  };
   const goals = store.all('goal').sort((a, b) => (a.saved >= a.target) - (b.saved >= b.target) || a.name.localeCompare(b.name));
   return `
     <h2>${t('Savings goals')}</h2>
@@ -320,7 +375,8 @@ function viewPlan() {
     </div>
     ${!rows.length ? `<h2>${t('Budgets')}</h2><div class="card empty">${t('Add an expense category first, then set a monthly limit for it here.')}</div>` : `
     <h2>${t('Budgets for {0}', monthLabel(ui.month))}</h2>
-    ${withB.length ? `<div class="card list">${withB.map(row).join('')}</div>` : `<div class="card empty">${t('No budgets yet. Tap a category below to set a monthly limit.')}</div>`}
+    ${monthRow()}
+    ${withB.length ? `<h2>${t('By category')}</h2><div class="card list">${withB.map(row).join('')}</div>` : `<p class="hint">${t('You can also set limits per category: tap one below.')}</p>`}
     ${without.length ? `<h2>${t('Without a budget')}</h2><div class="card list">${without.map(row).join('')}</div>` : ''}`}`;
 }
 
@@ -436,9 +492,11 @@ const SHEETS = {
     ${whoPicker(d)}
     <label>${t('Status')}</label>${seg('active', d.active ? '1' : '0', [['1', t('Active')], ['0', t('Paused')]])}
     <p class="hint">${d.freq === 'weekly' ? t('Repeats every 7 days from the first payment. If that date is in the past, the payments since then are added right away.') : d.freq === 'biweekly' ? t('Repeats every 14 days from the first payment. If that date is in the past, the payments since then are added right away.') : t('Added automatically each month, starting the next time that day comes around.')}</p>${actions(d)}`],
-  budget: (d) => [t('Budget for {0}', esc(catOf(d.catId).name)), `
+  budget: (d) => [d.catId === TOTAL ? t('Monthly budget') : t('Budget for {0}', esc(catOf(d.catId).name)), `
     <label>${t('Monthly limit')}</label>${amountField(d)}
+    ${d.catId === TOTAL ? `<p class="hint">${t('Every expense in the month counts toward it. Pennywise tells you when you reach 80% and 90%, and if you go over.')}</p>` : ''}
     <p class="hint">${t('Leave empty and save to remove the budget.')}</p>${actions({})}`],
+  notice: (d) => [d.title, `<p>${esc(d.text)}</p><div class="actions"><button type="button" class="btn primary" data-act="tab" data-v="plan">${t('See budget')}</button><button type="button" class="btn" data-act="close-sheet">${t('OK')}</button></div>`],
   goal: (d) => [d.id ? t('Edit savings goal') : t('New savings goal'), `
     <label for="f-name">${t('Name')}</label><input id="f-name" data-f="name" value="${esc(d.name || '')}" placeholder="${t('e.g. Vacation')}" required maxlength="40" autocomplete="off">
     <div class="row2"><div><label for="f-target">${t('Target amount')}</label>${moneyInput(d, 'targetText', 'f-target')}</div>
@@ -545,6 +603,8 @@ const SUBMIT = {
     const limit = parseAmount(d.amountText) || 0, id = 'budget:' + d.catId;
     if (limit) await store.save({ id, kind: 'budget', catId: d.catId, limit });
     else if (store.get(id)) await store.del(id);
+    // Ask once for permission to show alerts as system notifications too (iPhone: only in the home-screen app).
+    if (limit && d.catId === TOTAL && 'Notification' in window && Notification.permission === 'default') { try { await Notification.requestPermission(); } catch {} }
     closeSheet(); render();
   },
   async goal(d) {
@@ -628,7 +688,7 @@ async function saveFile(name, text, type) {
 
 /* ---------- actions ---------- */
 const ACTIONS = {
-  tab(el) { ui.tab = el.dataset.v; ui.trendSel = null; if (ui.tab !== 'list') { ui.filterCat = null; ui.q = ''; } render(); scrollTo(0, 0); },
+  tab(el) { if (ui.sheet) closeSheet(); ui.tab = el.dataset.v; ui.trendSel = null; if (ui.tab !== 'list') { ui.filterCat = null; ui.q = ''; } render(); scrollTo(0, 0); },
   month(el) { const m = addMonths(ui.month, Number(el.dataset.v)); if (m <= curMonth()) { ui.month = m; ui.trendSel = null; render(); } },
   'month-now'() { ui.month = curMonth(); ui.trendSel = null; render(); },
   'open-year'() { ui.year = ui.month.slice(0, 4); ui.tab = 'year'; ui.trendSel = null; render(); scrollTo(0, 0); },
@@ -748,11 +808,13 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && ui.sheet
     text: t('The only way back in is to erase the data on this phone. With sync on, you can then rejoin with the pairing code from the other phone.'), run: eraseDevice }));
   await ensureInvestments();
   await runRecurring();
-  store.onChange((src) => { if (src === 'remote') { runRecurring(); render(); } });
+  store.onChange((src) => { if (src === 'remote') { runRecurring(); render(); } checkBudgetAlert(); });
   sync.onStatus(() => { if (!store.isEmpty() || store.getMeta('onboarded')) renderChrome(); if (ui.tab === 'more') render(); if (ui.sheet?.type === 'sync' && !ui.sheet.d.busy) renderSheet(); });
   sync.start();
   render();
-  document.addEventListener('visibilitychange', async () => { if (!document.hidden) { await runRecurring(); if (!ui.sheet) render(); } });
+  checkBudgetAlert();
+  document.addEventListener('pw-unlocked', checkBudgetAlert);
+  document.addEventListener('visibilitychange', async () => { if (!document.hidden) { await runRecurring(); if (!ui.sheet) render(); checkBudgetAlert(); } });
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
     // When an updated version takes over, reload once so the new screens appear (not while a form is open).
     const had = !!navigator.serviceWorker.controller;

@@ -4,6 +4,7 @@
   --ink: #1d1a17; --ink-2: #5a544c; --ink-3: #8a8378;
   --accent: #a9501f; --accent-ink: #fff; --accent-soft: #f3e2d6;
   --exp: #2a78d6; --inc: #1baf7a; --over: #c93a39;
+  --warn: #e3a008; --warn-ink: #8a5300;
   --pos: #13774a; --neg: #c0362c; --hero-pos: #5fd39b; --hero-neg: #ff8a80;
   --hero: #26201b; --hero-ink: #fbf6ef; --hero-ink-2: #cfc5b8;
   --shadow: 0 1px 2px rgba(60, 40, 20, .06), 0 6px 20px rgba(60, 40, 20, .05);
@@ -16,6 +17,7 @@
     --ink: #f0ece6; --ink-2: #bdb6ab; --ink-3: #8d867b;
     --accent: #e08f5f; --accent-ink: #1d120a; --accent-soft: #3a2a20;
     --exp: #3987e5; --inc: #199e70; --over: #e66767;
+    --warn: #d99a06; --warn-ink: #f0b54a;
     --pos: #4cc38a; --neg: #ff7b72;
     --hero: #2a2622; --hero-ink: #fbf6ef; --hero-ink-2: #bdb6ab;
     --shadow: none;
@@ -216,3 +218,8 @@ body.locked #sheet, body.locked #toast { z-index: 60; }
 .neg, .amt.expense { color: var(--neg); }
 .hero .pos { color: var(--hero-pos); }
 .hero .neg { color: var(--hero-neg); }
+
+/* budget warning states: amber from 80%, red from 90% (always with ⚠ and words, never colour alone) */
+.fill.warn { background: var(--warn); }
+.alert-text { color: var(--warn-ink); }
+.month-budget { margin-bottom: 4px; }
