@@ -43,6 +43,7 @@ const ICONS = [
   [/машин|авто|car|fuel|gas/i, '🚗'], [/розваг|развлеч|entertain|fun/i, '🎬'],
   [/одяг|одежд|cloth/i, '👕'], [/зв'?язок|связь|phone|mobile|internet|communic/i, '📱'],
   [/улюблен|питом|pet/i, '🐾'], [/спорт|sport|gym/i, '🏋️'],
+  [/інвест|инвест|invest|tfsa|rrsp/i, '📈'],
   [/депозит|deposit/i, '🏦'], [/заощадж|сбереж|saving/i, '🐖'],
   [/travel|подорож|путешеств/i, '✈️'], [/educat|освіт|образован/i, '🎓'], [/kid|child|діт|дет/i, '🧸'],
 ];

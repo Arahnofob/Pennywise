@@ -114,7 +114,7 @@ const UK = {
   'Offline. Will retry when you are back online.': 'Немає мережі. Спробуємо знову, коли з’явиться зв’язок.',
   // default categories
   'Groceries': 'Продукти', 'Eating out': 'Кафе', 'Home': 'Житло', 'Bills': 'Рахунки', 'Car': 'Машина', 'Transport': 'Транспорт', 'Health': 'Здоров’я',
-  'Clothes': 'Одяг', 'Fun': 'Розваги', 'Gifts': 'Подарунки', 'Phone': 'Зв’язок', 'Pets': 'Улюбленці', 'Salary': 'Зарплата', 'Other income': 'Інший дохід',
+  'Clothes': 'Одяг', 'Fun': 'Розваги', 'Gifts': 'Подарунки', 'Phone': 'Зв’язок', 'Pets': 'Улюбленці', 'Investments': 'Інвестиції', 'Salary': 'Зарплата', 'Other income': 'Інший дохід',
 };
 const EN = { 'Income.one': 'Income', 'Syncing….long': 'Syncing…' };
 

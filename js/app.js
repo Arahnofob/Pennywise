@@ -14,7 +14,7 @@ const DEFAULT_CATS = [
   ['Groceries', 'expense', '🛒'], ['Eating out', 'expense', '☕'], ['Home', 'expense', '🏠'], ['Bills', 'expense', '🧾'],
   ['Car', 'expense', '🚗'], ['Transport', 'expense', '🚌'], ['Health', 'expense', '💊'], ['Clothes', 'expense', '👕'],
   ['Fun', 'expense', '🎬'], ['Gifts', 'expense', '🎁'], ['Phone', 'expense', '📱'], ['Pets', 'expense', '🐾'],
-  ['Salary', 'income', '💼'], ['Other income', 'income', '💰'],
+  ['Investments', 'expense', '📈'], ['Salary', 'income', '💼'], ['Other income', 'income', '💰'],
 ];
 // Emoji picker for categories and goals, grouped by theme. Any other emoji can be typed in the box below it.
 const ICON_GROUPS = [
@@ -88,6 +88,14 @@ async function runRecurring() {
   }
   if (out.length) await store.saveMany(out);
   return out.length;
+}
+
+// One-time addition of an Investments expense category for people who started before it existed.
+// The id is fixed, so both phones create the same category, and if you delete or hide it, it stays that way.
+async function ensureInvestments() {
+  const id = catId('Investments', 'expense');
+  if (store.raw(id) || store.isEmpty() || allCats('expense').some((c) => /invest|інвест/i.test(c.name))) return;
+  await store.save({ id, kind: 'cat', name: t('Investments'), type: 'expense', icon: '📈' });
 }
 
 /* ---------- chrome ---------- */
@@ -573,6 +581,7 @@ const SUBMIT = {
     const newCats = d.cats.filter((c) => !store.get(c.id));
     await store.saveMany([...newCats, ...fresh]);
     await store.setMeta('onboarded', true);
+    await ensureInvestments();
     ui.month = d.to?.slice(0, 7) <= curMonth() ? d.to.slice(0, 7) : curMonth(); ui.tab = 'home';
     closeSheet(); render(); toast(t('Imported transactions: {0}.', num(fresh.length)));
   },
@@ -737,6 +746,7 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && ui.sheet
   await store.init();
   lock.start(() => openSheet('confirm', { title: t('Forgot your PIN?'), ok: t('Erase and reset'),
     text: t('The only way back in is to erase the data on this phone. With sync on, you can then rejoin with the pairing code from the other phone.'), run: eraseDevice }));
+  await ensureInvestments();
   await runRecurring();
   store.onChange((src) => { if (src === 'remote') { runRecurring(); render(); } });
   sync.onStatus(() => { if (!store.isEmpty() || store.getMeta('onboarded')) renderChrome(); if (ui.tab === 'more') render(); if (ui.sheet?.type === 'sync' && !ui.sheet.d.busy) renderSheet(); });
