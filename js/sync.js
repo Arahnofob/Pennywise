@@ -2,6 +2,7 @@
 // Protocol: pull every row with seq > our cursor, then push our dirty records.
 // Conflicts are resolved "newest edit wins", both here and in the database.
 import * as store from './store.js';
+import { t } from './i18n.js';
 
 const LOCAL = ['id', 'kind', 'updatedAt', 'deleted', 'dirty'];
 let running = null, again = false, timer = null;
@@ -38,8 +39,8 @@ async function rpc(cfg, fn, body) {
   if (!res.ok) {
     let msg = `${res.status}`;
     try { const j = await res.json(); msg = j.message || j.msg || j.error || msg; } catch {}
-    if (res.status === 404) msg = 'Sync tables not found. Run supabase/schema.sql in your Supabase project.';
-    if (res.status === 401) msg = 'The API key was rejected. Check the Supabase URL and anon key.';
+    if (res.status === 404) msg = t('Sync tables not found. Run supabase/schema.sql in your Supabase project.');
+    if (res.status === 401) msg = t('The API key was rejected. Check the Supabase URL and anon key.');
     throw new Error(msg);
   }
   return res.json();
@@ -78,7 +79,7 @@ export function syncNow() {
   set({ state: 'syncing', error: '' });
   running = cycle(cfg)
     .then(() => { set({ state: 'idle', lastSync: Date.now() }); return true; })
-    .catch((e) => { set({ state: 'error', error: navigator.onLine === false ? 'Offline. Will retry when you are back online.' : (e.message || String(e)) }); return false; })
+    .catch((e) => { set({ state: 'error', error: navigator.onLine === false ? t('Offline. Will retry when you are back online.') : (e.message || String(e)) }); return false; })
     .finally(() => { running = null; if (again) { again = false; syncNow(); } });
   return running;
 }

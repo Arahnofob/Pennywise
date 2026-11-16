@@ -1,12 +1,14 @@
 // Pennywise UI: state, views, sheets and event handling.
 import * as store from './store.js';
 import * as sync from './sync.js';
+import * as lock from './lock.js';
+import { t, lang, setLang, locale } from './i18n.js';
 import { mapMonefy, toCSV, catId, guessIcon } from './csv.js';
 import { categoryBars, trendChart } from './charts.js';
-import { uid, esc, fmt, fmtInput, parseAmount, today, curMonth, addMonths, daysInMonth, monthLabel, dayLabel } from './util.js';
+import { uid, esc, fmt, fmtInput, parseAmount, today, curMonth, addMonths, daysInMonth, monthLabel, monthName, dayLabel, num } from './util.js';
 
 const $ = (s) => document.querySelector(s);
-const ui = { tab: 'home', month: curMonth(), q: '', filterCat: null, trendSel: null, sheet: null };
+const ui = { tab: 'home', month: curMonth(), year: curMonth().slice(0, 4), q: '', filterCat: null, trendSel: null, sheet: null };
 
 const DEFAULT_CATS = [
   ['Groceries', 'expense', '🛒'], ['Eating out', 'expense', '☕'], ['Home', 'expense', '🏠'], ['Bills', 'expense', '🧾'],
@@ -15,14 +17,16 @@ const DEFAULT_CATS = [
   ['Salary', 'income', '💼'], ['Other income', 'income', '💰'],
 ];
 const ICON_CHOICES = '🛒 ☕ 🍽️ 🏠 🧾 💡 🚗 ⛽ 🚌 🚕 ✈️ 💊 🧴 👕 🎬 🎮 🎁 📱 🌐 🐾 🏋️ 🎓 🧸 🛠️ 📦 💼 💰 🏦 🐖 📈 🏷️'.split(' ');
+const GOAL_ICONS = '🎯 ✈️ 🏠 🚗 🛟 🎓 💍 👶 🏖️ 💻 🐖 🎁'.split(' ');
 
 /* ---------- data helpers ---------- */
 const cats = (type) => store.all('cat').filter((c) => !type || c.type === type).sort((a, b) => a.name.localeCompare(b.name));
-const catOf = (id) => store.get(id) || { name: 'Uncategorized', icon: '❓' };
+const catOf = (id) => store.get(id) || { name: t('Uncategorized'), icon: '❓' };
 const people = () => store.get('settings')?.people || [];
 const txs = () => store.all('tx');
-const sum = (list, type) => list.reduce((s, t) => s + (t.type === type ? t.amount : 0), 0);
+const sum = (list, type) => list.reduce((s, x) => s + (x.type === type ? x.amount : 0), 0);
 const byNewest = (a, b) => b.date.localeCompare(a.date) || (b.updatedAt || 0) - (a.updatedAt || 0);
+const signed = (n) => `${n < 0 ? '−' : ''}${fmt(Math.abs(n))}`;
 
 // Creates this month's (and any missed months') transactions for recurring payments.
 // The id is derived from the rule and the month, so two phones never create duplicates.
@@ -46,35 +50,40 @@ const TABS = [
   ['home', 'Overview', svg('<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>')],
   ['list', 'Transactions', svg('<path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>')],
   ['add'],
-  ['budgets', 'Budgets', svg('<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/>')],
+  ['plan', 'Plan', svg('<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/>')],
   ['more', 'More', svg('<path d="M5 12h.01M12 12h.01M19 12h.01"/>')],
 ];
+const firstYear = () => txs().reduce((m, x) => (x.date < m ? x.date : m), today()).slice(0, 4);
 
 function renderChrome() {
-  const showMonth = ui.tab !== 'more';
-  const st = sync.status;
+  const st = sync.status, thisYear = curMonth().slice(0, 4);
+  const switcher = ui.tab === 'year' ? `<div class="month">
+      <button data-act="year" data-v="-1" aria-label="${t('Previous year')}" ${ui.year <= firstYear() ? 'disabled' : ''}>‹</button>
+      <button class="month-name" data-act="year-now">${ui.year}</button>
+      <button data-act="year" data-v="1" aria-label="${t('Next year')}" ${ui.year >= thisYear ? 'disabled' : ''}>›</button>
+    </div>` : ui.tab !== 'more' ? `<div class="month">
+      <button data-act="month" data-v="-1" aria-label="${t('Previous month')}">‹</button>
+      <button class="month-name" data-act="month-now">${monthLabel(ui.month)}</button>
+      <button data-act="month" data-v="1" aria-label="${t('Next month')}" ${ui.month >= curMonth() ? 'disabled' : ''}>›</button>
+    </div>` : '';
   $('#top').innerHTML = `
     <div class="brand"><img src="icons/icon.svg" alt="" width="26" height="26"><span>Pennywise</span>
-      ${sync.enabled() ? `<button class="sync-pill ${st.state}" data-act="open-sync" aria-label="Sync status">${st.state === 'syncing' ? 'Syncing…' : st.state === 'error' ? '⚠ Sync issue' : '✓ Synced'}</button>` : ''}
-    </div>
-    ${showMonth ? `<div class="month">
-      <button data-act="month" data-v="-1" aria-label="Previous month">‹</button>
-      <button class="month-name" data-act="month-now">${monthLabel(ui.month)}</button>
-      <button data-act="month" data-v="1" aria-label="Next month" ${ui.month >= curMonth() ? 'disabled' : ''}>›</button>
-    </div>` : ''}`;
+      ${sync.enabled() ? `<button class="sync-pill ${st.state}" data-act="open-sync" aria-label="${t('Sync status')}">${st.state === 'syncing' ? t('Syncing…') : st.state === 'error' ? t('⚠ Sync issue') : t('✓ Synced')}</button>` : ''}
+    </div>${switcher}`;
+  const active = ui.tab === 'year' ? 'home' : ui.tab;
   $('#tabs').innerHTML = TABS.map(([id, label, glyph]) => id === 'add'
-    ? `<button class="fab" data-act="new-tx" aria-label="Add transaction">+</button>`
-    : `<button class="tab ${ui.tab === id ? 'on' : ''}" data-act="tab" data-v="${id}" ${ui.tab === id ? 'aria-current="page"' : ''}>${glyph}${label}</button>`).join('');
+    ? `<button class="fab" data-act="new-tx" aria-label="${t('Add transaction')}">+</button>`
+    : `<button class="tab ${active === id ? 'on' : ''}" data-act="tab" data-v="${id}" ${active === id ? 'aria-current="page"' : ''}>${glyph}${t(label)}</button>`).join('');
 }
 
 /* ---------- views ---------- */
-function txRow(t) {
-  const c = catOf(t.catId);
-  const sub = [t.note ? c.name : '', t.who, t.recId ? 'recurring' : ''].filter(Boolean).join(' · ');
-  return `<button class="tx" data-act="edit-tx" data-id="${esc(t.id)}">
+function txRow(x) {
+  const c = catOf(x.catId);
+  const sub = [x.note ? c.name : '', x.who, x.recId ? t('recurring') : ''].filter(Boolean).join(' · ');
+  return `<button class="tx" data-act="edit-tx" data-id="${esc(x.id)}">
     <span class="ico" aria-hidden="true">${esc(c.icon)}</span>
-    <span class="tx-main"><span class="tx-title">${esc(t.note || c.name)}</span>${sub ? `<span class="tx-sub">${esc(sub)}</span>` : ''}</span>
-    <span class="amt ${t.type}">${t.type === 'expense' ? '−' : '+'}${fmt(t.amount)}</span>
+    <span class="tx-main"><span class="tx-title">${esc(x.note || c.name)}</span>${sub ? `<span class="tx-sub">${esc(sub)}</span>` : ''}</span>
+    <span class="amt ${x.type}">${x.type === 'expense' ? '−' : '+'}${fmt(x.amount)}</span>
   </button>`;
 }
 
@@ -86,25 +95,25 @@ function txGroups(list) {
     html += `<div class="day"><span>${dayLabel(day)}</span><span>${net < 0 ? '−' : '+'}${fmt(Math.abs(net))}</span></div><div class="card list">${buf.map(txRow).join('')}</div>`;
     buf = [];
   };
-  for (const t of list) { if (t.date !== day) { flush(); day = t.date; } buf.push(t); }
+  for (const x of list) { if (x.date !== day) { flush(); day = x.date; } buf.push(x); }
   flush();
   return html;
 }
 
-function spendByCat(list, type = 'expense') {
+function spendByCat(list) {
   const m = new Map();
-  for (const t of list) if (t.type === type) m.set(t.catId, (m.get(t.catId) || 0) + t.amount);
-  return [...m].map(([id, amount]) => ({ id, amount, ...catOf(id) })).map((c) => ({ id: c.id, amount: c.amount, name: c.name, icon: c.icon })).sort((a, b) => b.amount - a.amount);
+  for (const x of list) if (x.type === 'expense') m.set(x.catId, (m.get(x.catId) || 0) + x.amount);
+  return [...m].map(([id, amount]) => { const c = catOf(id); return { id, amount, name: c.name, icon: c.icon }; }).sort((a, b) => b.amount - a.amount);
 }
 
 function viewHome() {
-  const all = txs(), list = all.filter((t) => t.date.startsWith(ui.month));
-  const inc = sum(list, 'income'), exp = sum(list, 'expense'), bal = inc - exp;
+  const all = txs(), list = all.filter((x) => x.date.startsWith(ui.month));
+  const inc = sum(list, 'income'), exp = sum(list, 'expense');
   const spend = spendByCat(list);
   const months = [];
   for (let i = 5; i >= 0; i--) months.push({ month: addMonths(ui.month, -i), income: 0, expense: 0 });
   const idx = new Map(months.map((m) => [m.month, m]));
-  for (const t of all) { const m = idx.get(t.date.slice(0, 7)); if (m) m[t.type] += t.amount; }
+  for (const x of all) { const m = idx.get(x.date.slice(0, 7)); if (m) m[x.type] += x.amount; }
 
   const budgets = store.all('budget');
   let budgetStrip = '';
@@ -112,62 +121,128 @@ function viewHome() {
     const limit = budgets.reduce((s, b) => s + b.limit, 0);
     const used = budgets.reduce((s, b) => s + (spend.find((c) => c.id === b.catId)?.amount || 0), 0);
     const left = limit - used;
-    budgetStrip = `<button class="card strip" data-act="tab" data-v="budgets">
-      <span><b>${left >= 0 ? fmt(left) + ' left' : '⚠ ' + fmt(-left) + ' over'}</b> of ${fmt(limit)} budgeted</span>
+    budgetStrip = `<button class="card strip" data-act="tab" data-v="plan">
+      <span><b>${left >= 0 ? t('{0} left', fmt(left)) : t('⚠ {0} over', fmt(-left))}</b> ${t('of {0} budgeted', fmt(limit))}</span>
       <span class="track"><span class="fill ${left < 0 ? 'over' : ''}" style="width:${Math.min((used / (limit || 1)) * 100, 100)}%"></span></span>
     </button>`;
   }
   const ppl = people();
   let byPerson = '';
-  if (ppl.length && list.some((t) => t.who && t.type === 'expense')) {
-    const rows = [...ppl, ''].map((p) => ({ name: p || 'Shared / not set', amount: list.reduce((s, t) => s + (t.type === 'expense' && (t.who || '') === p ? t.amount : 0), 0) })).filter((r) => r.amount);
+  if (ppl.length && list.some((x) => x.who && x.type === 'expense')) {
+    const rows = [...ppl, ''].map((p) => ({ name: p || t('Shared / not set'), amount: list.reduce((s, x) => s + (x.type === 'expense' && (x.who || '') === p ? x.amount : 0), 0) })).filter((r) => r.amount);
     const max = Math.max(...rows.map((r) => r.amount));
-    byPerson = `<h2>Spending by person</h2><div class="card pad"><div class="bars">${rows.map((r) => `
+    byPerson = `<h2>${t('Spending by person')}</h2><div class="card pad"><div class="bars">${rows.map((r) => `
       <div class="bar-row static"><span class="bar-main"><span class="bar-head"><span class="bar-name">${esc(r.name)}</span><span class="bar-val">${fmt(r.amount)}</span></span>
       <span class="track"><span class="fill" style="width:${(r.amount / max) * 100}%"></span></span></span></div>`).join('')}</div></div>`;
   }
 
   return `
     <section class="hero">
-      <div class="hero-label">Balance for ${monthLabel(ui.month)}</div>
-      <div class="hero-num">${bal < 0 ? '−' : ''}${fmt(Math.abs(bal))}</div>
+      <div class="hero-label">${t('Balance for {0}', monthLabel(ui.month))}</div>
+      <div class="hero-num">${signed(inc - exp)}</div>
       <div class="hero-pair">
-        <div><span>Income</span><b>${fmt(inc)}</b></div>
-        <div><span>Expenses</span><b>${fmt(exp)}</b></div>
+        <div><span>${t('Income')}</span><b>${fmt(inc)}</b></div>
+        <div><span>${t('Expenses')}</span><b>${fmt(exp)}</b></div>
       </div>
     </section>
     ${budgetStrip}
-    <h2>Spending by category</h2>
-    ${spend.length ? `<div class="card pad">${categoryBars(spend)}</div>` : `<div class="card empty">No expenses in ${monthLabel(ui.month)} yet.<br>Tap <b>+</b> to add one.</div>`}
+    <h2>${t('Spending by category')}</h2>
+    ${spend.length ? `<div class="card pad">${categoryBars(spend)}</div>` : `<div class="card empty">${t('No expenses in this period yet.')}<br>${t('Tap + to add one.')}</div>`}
     ${byPerson}
-    <h2>Last 6 months</h2>
+    <h2>${t('Last 6 months')}</h2>
     <div class="card pad">${trendChart(months, ui.trendSel && idx.has(ui.trendSel) ? ui.trendSel : ui.month)}</div>
-    ${list.length ? `<h2>Latest</h2><div class="card list">${[...list].sort(byNewest).slice(0, 5).map(txRow).join('')}</div>
-      <button class="link" data-act="tab" data-v="list">See all ${list.length} transactions</button>` : ''}`;
+    <button class="card year-link" data-act="open-year"><span>${t('Year in review: {0}', ui.month.slice(0, 4))}</span><span class="chev">›</span></button>
+    ${list.length ? `<h2>${t('Latest')}</h2><div class="card list">${[...list].sort(byNewest).slice(0, 5).map(txRow).join('')}</div>
+      <button class="link" data-act="tab" data-v="list">${t('See all transactions ({0})', list.length)}</button>` : ''}`;
+}
+
+function viewYear() {
+  const y = ui.year, cm = curMonth(), all = txs();
+  const list = all.filter((x) => x.date.startsWith(y));
+  const back = `<button class="back" data-act="tab" data-v="home">${t('‹ Back to months')}</button>`;
+  if (!list.length) return `${back}<div class="card empty">${t('No transactions in {0}.', y)}</div>`;
+  const months = Array.from({ length: 12 }, (_, i) => ({ month: `${y}-${String(i + 1).padStart(2, '0')}`, income: 0, expense: 0, n: 0 }));
+  for (const x of list) { const m = months[Number(x.date.slice(5, 7)) - 1]; m[x.type] += x.amount; m.n++; }
+  const inc = sum(list, 'income'), exp = sum(list, 'expense'), net = inc - exp;
+  const active = months.filter((m) => m.n && m.month <= cm);
+  const avg = exp / (active.length || 1);
+  const full = active.filter((m) => m.month < cm);              // the running month would always look "cheapest"
+  const ranked = [...(full.length ? full : active)].sort((a, b) => b.expense - a.expense);
+  const top = [...active].sort((a, b) => b.expense - a.expense)[0], low = ranked[ranked.length - 1];
+  const big = list.filter((x) => x.type === 'expense').sort((a, b) => b.amount - a.amount)[0];
+  const prevY = String(Number(y) - 1), prev = all.filter((x) => x.date.startsWith(prevY));
+  let cmp = '';
+  if (prev.length) {
+    const pAvg = sum(prev, 'expense') / (new Set(prev.map((x) => x.date.slice(0, 7))).size || 1);
+    const pct = pAvg ? Math.round(((avg - pAvg) / pAvg) * 100) : 0;
+    cmp = pct > 0 ? t('{0}% more than in {1}', pct, prevY) : pct < 0 ? t('{0}% less than in {1}', -pct, prevY) : t('same as in {0}', prevY);
+  }
+  const stat = (label, value, sub = '', cls = '') => `<div class="stat ${cls}"><span>${label}</span><b>${value}</b>${sub ? `<small>${sub}</small>` : ''}</div>`;
+  const sel = ui.trendSel?.startsWith(y) ? ui.trendSel : (active[active.length - 1] || months[0]).month;
+  return `${back}
+    <section class="hero">
+      <div class="hero-label">${net >= 0 ? t('Saved in {0}', y) : t('Overspent in {0}', y)}</div>
+      <div class="hero-num">${fmt(Math.abs(net))}</div>
+      <div class="hero-pair">
+        <div><span>${t('Income')}</span><b>${fmt(inc)}</b></div>
+        <div><span>${t('Expenses')}</span><b>${fmt(exp)}</b></div>
+      </div>
+    </section>
+    <div class="stats">
+      ${stat(t('Average monthly spending'), fmt(avg), cmp)}
+      ${stat(t('Savings rate'), inc ? Math.round((net / inc) * 100) + '%' : '—', t('of income kept'))}
+      ${top ? stat(t('Most expensive month'), esc(monthName(top.month)), fmt(top.expense)) : ''}
+      ${low && low !== top ? stat(t('Cheapest month'), esc(monthName(low.month)), fmt(low.expense)) : ''}
+      ${big ? stat(t('Biggest expense'), fmt(big.amount), esc(`${big.note || catOf(big.catId).name} · ${dayLabel(big.date)}`), 'wide') : ''}
+    </div>
+    <h2>${t('Month by month')}</h2>
+    <div class="card pad">${trendChart(months, sel)}</div>
+    <h2>${t('Where the money went')}</h2>
+    <div class="card pad">${categoryBars(spendByCat(list), false)}</div>`;
 }
 
 function viewList() {
   const q = ui.q.trim().toLowerCase();
   let list = txs();
-  if (!q) list = list.filter((t) => t.date.startsWith(ui.month));
-  if (ui.filterCat) list = list.filter((t) => t.catId === ui.filterCat);
-  if (q) list = list.filter((t) => `${t.note} ${catOf(t.catId).name} ${t.who || ''} ${(t.amount / 100).toFixed(2)}`.toLowerCase().includes(q));
+  if (!q) list = list.filter((x) => x.date.startsWith(ui.month));
+  if (ui.filterCat) list = list.filter((x) => x.catId === ui.filterCat);
+  if (q) list = list.filter((x) => `${x.note} ${catOf(x.catId).name} ${x.who || ''} ${(x.amount / 100).toFixed(2)}`.toLowerCase().includes(q));
   list.sort(byNewest);
   const shown = list.slice(0, 300);
   const fc = ui.filterCat && catOf(ui.filterCat);
   return `
-    <div class="search"><input type="search" id="q" placeholder="Search all transactions" value="${esc(ui.q)}" aria-label="Search transactions" autocomplete="off"></div>
+    <div class="search"><input type="search" id="q" placeholder="${t('Search all transactions')}" value="${esc(ui.q)}" aria-label="${t('Search transactions')}" autocomplete="off"></div>
     <div id="list-body">
     ${fc ? `<button class="chip on" data-act="clear-filter">${esc(fc.icon)} ${esc(fc.name)} ✕</button>` : ''}
-    <div class="totals"><span>${list.length} ${list.length === 1 ? 'transaction' : 'transactions'}${q ? ' in all months' : ''}</span>
+    <div class="totals"><span>${t('Transactions: {0}', num(list.length))}${q ? ' ' + t('(all months)') : ''}</span>
       <span>+${fmt(sum(list, 'income'))} &nbsp; −${fmt(sum(list, 'expense'))}</span></div>
-    ${shown.length ? txGroups(shown) : `<div class="card empty">${q || fc ? 'Nothing matches.' : `No transactions in ${monthLabel(ui.month)}.`}</div>`}
-    ${list.length > shown.length ? `<p class="hint">Showing the newest 300. Refine the search to see older ones.</p>` : ''}
+    ${shown.length ? txGroups(shown) : `<div class="card empty">${q || fc ? t('Nothing matches.') : t('No transactions in {0}.', monthLabel(ui.month))}</div>`}
+    ${list.length > shown.length ? `<p class="hint">${t('Showing the newest 300. Refine the search to see older ones.')}</p>` : ''}
     </div>`;
 }
 
-function viewBudgets() {
-  const list = txs().filter((t) => t.date.startsWith(ui.month));
+function goalRow(g) {
+  const left = g.target - g.saved, pct = Math.min((g.saved / g.target) * 100, 100);
+  let note = left <= 0 ? t('Reached 🎉') : t('{0} to go', fmt(left));
+  if (left > 0 && g.deadline) {
+    const dm = g.deadline.slice(0, 7), cm = curMonth();
+    if (dm < cm) note += ' · ' + t('Target date has passed');
+    else {
+      const [y1, m1] = cm.split('-').map(Number), [y2, m2] = dm.split('-').map(Number);
+      note = t('{0} a month to reach it by {1}', fmt(Math.ceil(left / ((y2 - y1) * 12 + (m2 - m1) + 1))), monthLabel(dm));
+    }
+  }
+  return `<button class="budget" data-act="edit-goal" data-id="${esc(g.id)}">
+    <span class="ico" aria-hidden="true">${esc(g.icon || '🎯')}</span>
+    <span class="bar-main">
+      <span class="bar-head"><span class="bar-name">${esc(g.name)}</span><span class="bar-val">${fmt(g.saved)} <small>${t('of {0}', fmt(g.target))}</small></span></span>
+      <span class="track"><span class="fill goal" style="width:${Math.max(pct, g.saved ? 1.5 : 0)}%"></span></span>
+      <span class="budget-note">${Math.floor(pct)}% · ${esc(note)}</span>
+    </span></button>`;
+}
+
+function viewPlan() {
+  const list = txs().filter((x) => x.date.startsWith(ui.month));
   const spent = new Map(spendByCat(list).map((c) => [c.id, c.amount]));
   const limits = new Map(store.all('budget').map((b) => [b.catId, b.limit]));
   const rows = cats('expense').map((c) => ({ c, limit: limits.get(c.id) || 0, used: spent.get(c.id) || 0 }));
@@ -178,59 +253,73 @@ function viewBudgets() {
     return `<button class="budget" data-act="edit-budget" data-id="${esc(c.id)}">
       <span class="ico" aria-hidden="true">${esc(c.icon)}</span>
       <span class="bar-main">
-        <span class="bar-head"><span class="bar-name">${esc(c.name)}</span><span class="bar-val">${fmt(used)}${limit ? ` <small>of ${fmt(limit)}</small>` : ''}</span></span>
+        <span class="bar-head"><span class="bar-name">${esc(c.name)}</span><span class="bar-val">${fmt(used)}${limit ? ` <small>${t('of {0}', fmt(limit))}</small>` : ''}</span></span>
         ${limit ? `<span class="track"><span class="fill ${left < 0 ? 'over' : ''}" style="width:${Math.min((used / limit) * 100, 100)}%"></span></span>
-        <span class="budget-note ${left < 0 ? 'over' : ''}">${left < 0 ? `⚠ Over by ${fmt(-left)}` : `${fmt(left)} left`}</span>` : `<span class="budget-note">No budget · tap to set</span>`}
+        <span class="budget-note ${left < 0 ? 'over' : ''}">${left < 0 ? t('⚠ Over by {0}', fmt(-left)) : t('{0} left', fmt(left))}</span>` : `<span class="budget-note">${t('No budget · tap to set')}</span>`}
       </span></button>`;
   };
-  if (!rows.length) return `<div class="card empty">Add a category first, then set a monthly limit for it here.</div>`;
+  const goals = store.all('goal').sort((a, b) => (a.saved >= a.target) - (b.saved >= b.target) || a.name.localeCompare(b.name));
   return `
-    ${withB.length ? `<h2>Budgets for ${monthLabel(ui.month)}</h2><div class="card list">${withB.map(row).join('')}</div>` : `<div class="card empty">No budgets yet. Tap a category below to set a monthly limit.</div>`}
-    ${without.length ? `<h2>Without a budget</h2><div class="card list">${without.map(row).join('')}</div>` : ''}`;
+    <h2>${t('Savings goals')}</h2>
+    <div class="card list">${goals.map(goalRow).join('')}
+      <button class="tx" data-act="new-goal"><span class="ico" aria-hidden="true">＋</span><span class="tx-main"><span class="tx-title">${t('Add savings goal')}</span><span class="tx-sub">${t('A trip, a car, an emergency fund…')}</span></span><span class="chev">›</span></button>
+    </div>
+    ${!rows.length ? `<h2>${t('Budgets')}</h2><div class="card empty">${t('Add an expense category first, then set a monthly limit for it here.')}</div>` : `
+    <h2>${t('Budgets for {0}', monthLabel(ui.month))}</h2>
+    ${withB.length ? `<div class="card list">${withB.map(row).join('')}</div>` : `<div class="card empty">${t('No budgets yet. Tap a category below to set a monthly limit.')}</div>`}
+    ${without.length ? `<h2>${t('Without a budget')}</h2><div class="card list">${without.map(row).join('')}</div>` : ''}`}`;
 }
 
 function viewMore() {
   const recs = store.all('rec').sort((a, b) => a.day - b.day);
   const st = sync.status, on = sync.enabled();
-  const item = (act, icon, title, sub, attrs = '') => `<button class="tx" data-act="${act}" ${attrs}><span class="ico" aria-hidden="true">${icon}</span>
+  const item = (act, icon, title, sub) => `<button class="tx" data-act="${act}"><span class="ico" aria-hidden="true">${icon}</span>
     <span class="tx-main"><span class="tx-title">${title}</span>${sub ? `<span class="tx-sub">${sub}</span>` : ''}</span><span class="chev">›</span></button>`;
+  const syncSub = !on ? t('Off · data stays on this phone') : st.state === 'error' ? '⚠ ' + esc(st.error) : st.state === 'syncing' ? t('Syncing…')
+    : t('On') + (st.lastSync ? ' · ' + t('last synced {0}', new Date(st.lastSync).toLocaleTimeString(locale(), { hour: 'numeric', minute: '2-digit' })) : '');
   return `
-    <h2>Recurring payments</h2>
+    <h2>${t('Recurring payments')}</h2>
     <div class="card list">
       ${recs.map((r) => { const c = catOf(r.catId); return `<button class="tx" data-act="edit-rec" data-id="${esc(r.id)}"><span class="ico" aria-hidden="true">${esc(c.icon)}</span>
-        <span class="tx-main"><span class="tx-title">${esc(r.note || c.name)}</span><span class="tx-sub">Day ${r.day} of every month${r.active ? '' : ' · paused'}</span></span>
+        <span class="tx-main"><span class="tx-title">${esc(r.note || c.name)}</span><span class="tx-sub">${t('Day {0} of every month', r.day)}${r.active ? '' : ' · ' + t('paused')}</span></span>
         <span class="amt">${r.type === 'expense' ? '−' : '+'}${fmt(r.amount)}</span></button>`; }).join('')}
-      ${item('new-rec', '＋', 'Add recurring payment', 'Rent, subscriptions, salary…')}
+      ${item('new-rec', '＋', t('Add recurring payment'), t('Rent, subscriptions, salary…'))}
     </div>
-    <h2>Categories</h2>
+    <h2>${t('Categories')}</h2>
     <div class="card pad"><div class="cat-grid">
       ${cats().map((c) => `<button class="cat" data-act="edit-cat" data-id="${esc(c.id)}"><span aria-hidden="true">${esc(c.icon)}</span>${esc(c.name)}</button>`).join('')}
-      <button class="cat add" data-act="new-cat"><span aria-hidden="true">＋</span>New</button>
+      <button class="cat add" data-act="new-cat"><span aria-hidden="true">＋</span>${t('New')}</button>
     </div></div>
-    <h2>Household</h2>
+    <h2>${t('Household')}</h2>
     <div class="card list">
-      ${item('open-people', '👥', 'People', people().length ? esc(people().join(', ')) : 'Add your names to track who paid')}
-      ${item('open-sync', '☁️', 'Sync between phones', on ? (st.state === 'error' ? '⚠ ' + esc(st.error) : st.state === 'syncing' ? 'Syncing…' : 'On' + (st.lastSync ? ' · last synced ' + new Date(st.lastSync).toLocaleTimeString('en-CA', { hour: 'numeric', minute: '2-digit' }) : '')) : 'Off · data stays on this phone')}
+      ${item('open-people', '👥', t('People'), people().length ? esc(people().join(', ')) : t('Add your names to track who paid'))}
+      ${item('open-sync', '☁️', t('Sync between phones'), syncSub)}
     </div>
-    <h2>Your data</h2>
+    <h2>${t('Settings')}</h2>
     <div class="card list">
-      ${item('import-csv', '📥', 'Import from Monefy', 'Pick the CSV file exported from Monefy')}
-      ${item('export-backup', '💾', 'Save a backup', 'Everything in one file you can restore later')}
-      ${item('import-backup', '♻️', 'Restore a backup', 'Merges a backup file into this phone')}
-      ${item('export-csv', '📄', 'Export as CSV', 'Open your transactions in a spreadsheet')}
-      ${item('erase', '🗑️', 'Erase data on this phone', '')}
+      ${item('open-lang', '🌐', t('Language'), lang() === 'uk' ? 'Українська' : 'English')}
+      ${item('open-lock', '🔒', t('App lock'), lock.isSet() ? t('On · PIN asked when you open the app') : t('Off'))}
     </div>
-    <p class="hint">Pennywise keeps your data on this phone. ${txs().length.toLocaleString('en-CA')} transactions stored.</p>`;
+    <h2>${t('Your data')}</h2>
+    <div class="card list">
+      ${item('import-csv', '📥', t('Import from Monefy'), t('Pick the CSV file exported from Monefy'))}
+      ${item('export-backup', '💾', t('Save a backup'), t('Everything in one file you can restore later'))}
+      ${item('import-backup', '♻️', t('Restore a backup'), t('Merges a backup file into this phone'))}
+      ${item('export-csv', '📄', t('Export as CSV'), t('Open your transactions in a spreadsheet'))}
+      ${item('erase', '🗑️', t('Erase data on this phone'), '')}
+    </div>
+    <p class="hint">${t('Pennywise keeps your data on this phone. Transactions stored: {0}.', num(txs().length))}</p>`;
 }
 
 function viewWelcome() {
   return `<section class="welcome">
     <img src="icons/icon.svg" alt="" width="88" height="88">
-    <h1>Welcome to Pennywise</h1>
-    <p>A private money tracker for the two of you. Everything is stored on this phone.</p>
-    <button class="btn primary" data-act="import-csv">Import my Monefy history</button>
-    <button class="btn" data-act="start-fresh">Start fresh</button>
-    <button class="btn ghost" data-act="open-sync">Join my partner's Pennywise</button>
+    <h1>${t('Welcome to Pennywise')}</h1>
+    <p>${t('A private money tracker for the two of you. Everything is stored on this phone.')}</p>
+    <button class="btn primary" data-act="import-csv">${t('Import my Monefy history')}</button>
+    <button class="btn" data-act="start-fresh">${t('Start fresh')}</button>
+    <button class="btn ghost" data-act="open-sync">${t("Join my partner's Pennywise")}</button>
+    <button class="btn ghost" data-act="toggle-lang">${lang() === 'uk' ? 'English' : 'Українська'}</button>
   </section>`;
 }
 
@@ -241,69 +330,82 @@ function render() {
   renderChrome();
   const keep = ui.tab === 'list' && document.activeElement?.id === 'q';
   if (keep) { $('#list-body').outerHTML = viewList().match(/<div id="list-body">[\s\S]*$/)[0]; return; }
-  $('#view').innerHTML = { home: viewHome, list: viewList, budgets: viewBudgets, more: viewMore }[ui.tab]();
+  $('#view').innerHTML = { home: viewHome, year: viewYear, list: viewList, plan: viewPlan, more: viewMore }[ui.tab]();
 }
 
 /* ---------- sheets ---------- */
 const seg = (f, cur, opts) => `<div class="seg" role="group">${opts.map(([v, l]) => `<button type="button" class="${cur === v ? 'on' : ''}" data-act="set" data-f="${f}" data-v="${v}" aria-pressed="${cur === v}">${l}</button>`).join('')}</div>`;
+const typeSeg = (d) => seg('type', d.type, [['expense', t('Expense')], ['income', t('Income.one')]]);
 const catPicker = (d) => {
   const list = cats(d.type);
   return list.length ? `<div class="cat-grid pick">${list.map((c) => `<button type="button" class="cat ${d.catId === c.id ? 'on' : ''}" data-act="set" data-f="catId" data-v="${esc(c.id)}" aria-pressed="${d.catId === c.id}"><span aria-hidden="true">${esc(c.icon)}</span>${esc(c.name)}</button>`).join('')}</div>`
-    : `<p class="hint">No ${d.type} categories yet. Add one under More → Categories.</p>`;
+    : `<p class="hint">${t('No categories of this type yet. Add one under More → Categories.')}</p>`;
 };
-const whoPicker = (d) => people().length ? `<label>Who</label>${seg('who', d.who || '', [['', 'Shared'], ...people().map((p) => [esc(p), esc(p)])])}` : '';
-const amountField = (d) => `<div class="amount"><span>$</span><input data-f="amountText" inputmode="decimal" placeholder="0.00" value="${esc(d.amountText || '')}" aria-label="Amount in Canadian dollars" autocomplete="off"></div>`;
-const actions = (d, label = 'Save') => `<div class="actions">${d.id ? `<button type="button" class="btn danger" data-act="sheet-delete">Delete</button>` : ''}<button type="submit" class="btn primary">${label}</button></div>`;
+const whoPicker = (d) => people().length ? `<label>${t('Who')}</label>${seg('who', d.who || '', [['', t('Shared')], ...people().map((p) => [esc(p), esc(p)])])}` : '';
+const amountField = (d, f = 'amountText') => `<div class="amount"><span>$</span><input data-f="${f}" inputmode="decimal" placeholder="0.00" value="${esc(d[f] || '')}" aria-label="${t('Amount in Canadian dollars')}" autocomplete="off"></div>`;
+const moneyInput = (d, f, id) => `<input id="${id}" data-f="${f}" inputmode="decimal" placeholder="0.00" value="${esc(d[f] || '')}" autocomplete="off">`;
+const iconGrid = (d, list) => `<div class="icon-grid">${list.map((i) => `<button type="button" class="${d.icon === i ? 'on' : ''}" data-act="set" data-f="icon" data-v="${i}" aria-pressed="${d.icon === i}">${i}</button>`).join('')}</div>`;
+const actions = (d, label = t('Save')) => `<div class="actions">${d.id ? `<button type="button" class="btn danger" data-act="sheet-delete">${t('Delete')}</button>` : ''}<button type="submit" class="btn primary">${label}</button></div>`;
 
 const SHEETS = {
-  tx: (d) => [d.id ? 'Edit transaction' : 'New transaction', `
-    ${seg('type', d.type, [['expense', 'Expense'], ['income', 'Income']])}
-    ${amountField(d)}
-    <label>Category</label>${catPicker(d)}
-    <div class="row2"><div><label for="f-date">Date</label><input id="f-date" type="date" data-f="date" value="${esc(d.date)}" max="2100-12-31" required></div>
-    <div><label for="f-note">Note</label><input id="f-note" data-f="note" value="${esc(d.note || '')}" placeholder="Optional" autocomplete="off" maxlength="120"></div></div>
+  tx: (d) => [d.id ? t('Edit transaction') : t('New transaction'), `
+    ${typeSeg(d)}${amountField(d)}
+    <label>${t('Category')}</label>${catPicker(d)}
+    <div class="row2"><div><label for="f-date">${t('Date')}</label><input id="f-date" type="date" data-f="date" value="${esc(d.date)}" max="2100-12-31" required></div>
+    <div><label for="f-note">${t('Note')}</label><input id="f-note" data-f="note" value="${esc(d.note || '')}" placeholder="${t('Optional')}" autocomplete="off" maxlength="120"></div></div>
     ${whoPicker(d)}${actions(d)}`],
-  rec: (d) => [d.id ? 'Edit recurring payment' : 'New recurring payment', `
-    ${seg('type', d.type, [['expense', 'Expense'], ['income', 'Income']])}
-    ${amountField(d)}
-    <label>Category</label>${catPicker(d)}
-    <div class="row2"><div><label for="f-day">Day of month</label><input id="f-day" type="number" min="1" max="31" data-f="day" value="${esc(d.day)}" inputmode="numeric" required></div>
-    <div><label for="f-note">Name</label><input id="f-note" data-f="note" value="${esc(d.note || '')}" placeholder="e.g. Rent" autocomplete="off" maxlength="120"></div></div>
+  rec: (d) => [d.id ? t('Edit recurring payment') : t('New recurring payment'), `
+    ${typeSeg(d)}${amountField(d)}
+    <label>${t('Category')}</label>${catPicker(d)}
+    <div class="row2"><div><label for="f-day">${t('Day of month')}</label><input id="f-day" type="number" min="1" max="31" data-f="day" value="${esc(d.day)}" inputmode="numeric" required></div>
+    <div><label for="f-note">${t('Name')}</label><input id="f-note" data-f="note" value="${esc(d.note || '')}" placeholder="${t('e.g. Rent')}" autocomplete="off" maxlength="120"></div></div>
     ${whoPicker(d)}
-    <label>Status</label>${seg('active', d.active ? '1' : '0', [['1', 'Active'], ['0', 'Paused']])}
-    <p class="hint">Added automatically each month, starting the next time that day comes around.</p>${actions(d)}`],
-  budget: (d) => [`Budget for ${esc(catOf(d.catId).name)}`, `
-    <label>Monthly limit</label>${amountField(d)}
-    <p class="hint">Leave empty and save to remove the budget.</p>${actions({}, 'Save')}`],
-  cat: (d) => [d.id ? 'Edit category' : 'New category', `
-    ${d.id ? '' : seg('type', d.type, [['expense', 'Expense'], ['income', 'Income']])}
-    <label for="f-name">Name</label><input id="f-name" data-f="name" value="${esc(d.name || '')}" required maxlength="40" autocomplete="off">
-    <label>Icon</label><div class="icon-grid">${ICON_CHOICES.map((i) => `<button type="button" class="${d.icon === i ? 'on' : ''}" data-act="set" data-f="icon" data-v="${i}" aria-pressed="${d.icon === i}">${i}</button>`).join('')}</div>
-    ${actions(d)}`],
-  people: (d) => ['People', `
-    <label for="f-p1">First person</label><input id="f-p1" data-f="p1" value="${esc(d.p1 || '')}" maxlength="24" placeholder="Name" autocomplete="off">
-    <label for="f-p2">Second person</label><input id="f-p2" data-f="p2" value="${esc(d.p2 || '')}" maxlength="24" placeholder="Name" autocomplete="off">
-    <p class="hint">With names set, every transaction can be marked with who paid. Use the same names on both phones.</p>${actions({})}`],
-  import: (d) => ['Import from Monefy', `
-    <div class="summary"><div><b>${d.txs.length.toLocaleString('en-CA')}</b> transactions</div><div><b>${d.cats.length}</b> categories</div></div>
-    <p>From ${dayLabel(d.from)} to ${dayLabel(d.to)}.</p>
-    ${d.dupes ? `<p class="hint">${d.dupes.toLocaleString('en-CA')} of them are already in Pennywise and will be skipped.</p>` : ''}
-    ${d.skipped ? `<p class="hint">${d.skipped} rows could not be read and will be skipped.</p>` : ''}
-    <div class="actions"><button type="submit" class="btn primary">${d.txs.length - d.dupes ? `Import ${(d.txs.length - d.dupes).toLocaleString('en-CA')} transactions` : 'Nothing new to import'}</button></div>`],
-  confirm: (d) => [d.title, `<p>${d.text}</p><div class="actions"><button type="button" class="btn" data-act="close-sheet">Cancel</button><button type="submit" class="btn danger">${d.ok}</button></div>`],
-  sync: (d) => sync.enabled() ? ['Sync between phones', `
-    <p class="status ${sync.status.state}">${sync.status.state === 'error' ? '⚠ ' + esc(sync.status.error) : sync.status.state === 'syncing' ? 'Syncing…' : '✓ Sync is on. Changes appear on the other phone within a minute.'}</p>
-    <label for="f-code">Pairing code for the other phone</label>
+    <label>${t('Status')}</label>${seg('active', d.active ? '1' : '0', [['1', t('Active')], ['0', t('Paused')]])}
+    <p class="hint">${t('Added automatically each month, starting the next time that day comes around.')}</p>${actions(d)}`],
+  budget: (d) => [t('Budget for {0}', esc(catOf(d.catId).name)), `
+    <label>${t('Monthly limit')}</label>${amountField(d)}
+    <p class="hint">${t('Leave empty and save to remove the budget.')}</p>${actions({})}`],
+  goal: (d) => [d.id ? t('Edit savings goal') : t('New savings goal'), `
+    <label for="f-name">${t('Name')}</label><input id="f-name" data-f="name" value="${esc(d.name || '')}" placeholder="${t('e.g. Vacation')}" required maxlength="40" autocomplete="off">
+    <div class="row2"><div><label for="f-target">${t('Target amount')}</label>${moneyInput(d, 'targetText', 'f-target')}</div>
+    <div><label for="f-saved">${t('Saved so far')}</label>${moneyInput(d, 'savedText', 'f-saved')}</div></div>
+    ${d.id ? `<label for="f-add">${t('Add to it now')}</label>${moneyInput(d, 'addText', 'f-add')}` : ''}
+    <label for="f-deadline">${t('Target date (optional)')}</label><input id="f-deadline" type="date" data-f="deadline" value="${esc(d.deadline || '')}" max="2100-12-31">
+    <label>${t('Icon')}</label>${iconGrid(d, GOAL_ICONS)}${actions(d)}`],
+  cat: (d) => [d.id ? t('Edit category') : t('New category'), `
+    ${d.id ? '' : typeSeg(d)}
+    <label for="f-name">${t('Name')}</label><input id="f-name" data-f="name" value="${esc(d.name || '')}" required maxlength="40" autocomplete="off">
+    <label>${t('Icon')}</label>${iconGrid(d, ICON_CHOICES)}${actions(d)}`],
+  people: (d) => [t('People'), `
+    <label for="f-p1">${t('First person')}</label><input id="f-p1" data-f="p1" value="${esc(d.p1 || '')}" maxlength="24" autocomplete="off">
+    <label for="f-p2">${t('Second person')}</label><input id="f-p2" data-f="p2" value="${esc(d.p2 || '')}" maxlength="24" autocomplete="off">
+    <p class="hint">${t('With names set, every transaction can be marked with who paid. Use the same names on both phones.')}</p>${actions({})}`],
+  lang: () => [t('Language'), seg('lang', lang(), [['en', 'English'], ['uk', 'Українська']])],
+  lock: (d) => [t('App lock'), `
+    <label for="f-pin1">${t('New PIN (4 digits)')}</label><input id="f-pin1" data-f="pin1" type="password" inputmode="numeric" maxlength="4" autocomplete="off" value="${esc(d.pin1 || '')}">
+    <label for="f-pin2">${t('Repeat PIN')}</label><input id="f-pin2" data-f="pin2" type="password" inputmode="numeric" maxlength="4" autocomplete="off" value="${esc(d.pin2 || '')}">
+    <p class="hint">${t('Pennywise will ask for this PIN when you open it. The PIN keeps people holding your phone out of the app; it is set separately on each phone.')}</p>
+    <div class="actions">${lock.isSet() ? `<button type="button" class="btn danger" data-act="lock-off">${t('Turn off lock')}</button>` : ''}<button type="submit" class="btn primary">${lock.isSet() ? t('Change PIN') : t('Turn on app lock')}</button></div>`],
+  import: (d) => [t('Import from Monefy'), `
+    <div class="summary"><div><b>${num(d.txs.length)}</b> ${t('transactions')}</div><div><b>${d.cats.length}</b> ${t('categories')}</div></div>
+    <p>${t('From {0} to {1}.', dayLabel(d.from), dayLabel(d.to))}</p>
+    ${d.dupes ? `<p class="hint">${t('Already in Pennywise and will be skipped: {0}.', num(d.dupes))}</p>` : ''}
+    ${d.skipped ? `<p class="hint">${t('Rows that could not be read: {0}.', d.skipped)}</p>` : ''}
+    <div class="actions"><button type="submit" class="btn primary">${d.txs.length - d.dupes ? t('Import transactions ({0})', num(d.txs.length - d.dupes)) : t('Nothing new to import')}</button></div>`],
+  confirm: (d) => [d.title, `<p>${d.text}</p><div class="actions"><button type="button" class="btn" data-act="close-sheet">${t('Cancel')}</button><button type="submit" class="btn danger">${d.ok}</button></div>`],
+  sync: (d) => sync.enabled() ? [t('Sync between phones'), `
+    <p class="status ${sync.status.state}">${sync.status.state === 'error' ? '⚠ ' + esc(sync.status.error) : sync.status.state === 'syncing' ? t('Syncing….long') : t('✓ Sync is on. Changes appear on the other phone within a minute.')}</p>
+    <label for="f-code">${t('Pairing code for the other phone')}</label>
     <textarea id="f-code" readonly rows="4">${esc(sync.pairingCode())}</textarea>
-    <p class="hint">On the other phone open More → Sync between phones → paste this code. Keep it private: anyone with the code can see your data.</p>
-    <div class="actions"><button type="button" class="btn danger" data-act="sync-off">Turn off</button><button type="button" class="btn" data-act="copy-code">Copy code</button><button type="button" class="btn primary" data-act="sync-now">Sync now</button></div>`]
-    : ['Sync between phones', `
-    ${seg('mode', d.mode, [['join', 'I have a pairing code'], ['new', 'Set up first phone']])}
-    ${d.mode === 'join' ? `<label for="f-code">Pairing code from the other phone</label><textarea id="f-code" data-f="code" rows="4" placeholder="PW1.…" required>${esc(d.code || '')}</textarea>`
-    : `<p class="hint">Sync uses your own free Supabase project. Follow the 5-minute setup in the README, then paste the two values here.</p>
-      <label for="f-url">Project URL</label><input id="f-url" data-f="url" type="url" value="${esc(d.url || '')}" placeholder="https://xxxx.supabase.co" required autocomplete="off" autocapitalize="off">
-      <label for="f-key">Anon / publishable key</label><textarea id="f-key" data-f="key" rows="3" required autocapitalize="off">${esc(d.key || '')}</textarea>`}
-    <div class="actions"><button type="submit" class="btn primary">${d.busy ? 'Connecting…' : 'Connect'}</button></div>`],
+    <p class="hint">${t('On the other phone open More → Sync between phones and paste this code. Keep it private: anyone with the code can see your data.')}</p>
+    <div class="actions"><button type="button" class="btn danger" data-act="sync-off">${t('Turn off')}</button><button type="button" class="btn" data-act="copy-code">${t('Copy code')}</button><button type="button" class="btn primary" data-act="sync-now">${t('Sync now')}</button></div>`]
+    : [t('Sync between phones'), `
+    ${seg('mode', d.mode, [['join', t('I have a pairing code')], ['new', t('Set up first phone')]])}
+    ${d.mode === 'join' ? `<label for="f-code">${t('Pairing code from the other phone')}</label><textarea id="f-code" data-f="code" rows="4" placeholder="PW1.…" required>${esc(d.code || '')}</textarea>`
+    : `<p class="hint">${t('Sync uses your own free Supabase project. Follow the 5-minute setup in the README, then paste the two values here.')}</p>
+      <label for="f-url">${t('Project URL')}</label><input id="f-url" data-f="url" type="url" value="${esc(d.url || '')}" placeholder="https://xxxx.supabase.co" required autocomplete="off" autocapitalize="off">
+      <label for="f-key">${t('Anon / publishable key')}</label><textarea id="f-key" data-f="key" rows="3" required autocapitalize="off">${esc(d.key || '')}</textarea>`}
+    <div class="actions"><button type="submit" class="btn primary">${d.busy ? t('Connecting…') : t('Connect')}</button></div>`],
 };
 
 function renderSheet() {
@@ -314,7 +416,7 @@ function renderSheet() {
   document.body.classList.add('sheet-open');
   el.innerHTML = `<div class="backdrop" data-act="close-sheet"></div>
     <form class="panel" role="dialog" aria-modal="true" aria-label="${title}" novalidate>
-      <div class="panel-head"><h3>${title}</h3><button type="button" class="x" data-act="close-sheet" aria-label="Close">✕</button></div>
+      <div class="panel-head"><h3>${title}</h3><button type="button" class="x" data-act="close-sheet" aria-label="${t('Close')}">✕</button></div>
       <div class="panel-body">${body}</div></form>`;
 }
 function openSheet(type, d = {}, focus) {
@@ -334,30 +436,34 @@ function toast(msg) {
 /* ---------- saving ---------- */
 function readTxDraft(d) {
   const amount = parseAmount(d.amountText);
-  if (!amount) return toast('Enter an amount.'), null;
-  if (!d.catId || store.get(d.catId)?.type !== d.type) return toast('Pick a category.'), null;
+  if (!amount) return toast(t('Enter an amount.')), null;
+  if (!d.catId || store.get(d.catId)?.type !== d.type) return toast(t('Pick a category.')), null;
   return amount;
+}
+async function eraseDevice() {
+  await sync.disconnect(); await store.wipe(); await store.setMeta('onboarded', false);
+  lock.clearPin(); lock.unlock(); ui.tab = 'home';
 }
 
 const SUBMIT = {
   async tx(d) {
     const amount = readTxDraft(d); if (!amount) return;
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(d.date)) return toast('Pick a date.');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d.date)) return toast(t('Pick a date.'));
     const old = d.id ? store.get(d.id) : null;
     await store.save({ ...(old || {}), id: d.id || 'tx:' + uid(), kind: 'tx', date: d.date, type: d.type, amount, catId: d.catId, note: (d.note || '').trim(), who: d.who || '' });
     localStorage.setItem('pw-who', d.who || '');
-    ui.month = d.date.slice(0, 7) > curMonth() ? ui.month : d.date.slice(0, 7);
-    closeSheet(); render(); toast(d.id ? 'Saved.' : `${d.type === 'expense' ? 'Expense' : 'Income'} of ${fmt(amount)} added.`);
+    if (ui.tab !== 'year' && d.date.slice(0, 7) <= curMonth()) ui.month = d.date.slice(0, 7);
+    closeSheet(); render(); toast(d.id ? t('Saved.') : t(d.type === 'expense' ? 'Expense of {0} added.' : 'Income of {0} added.', fmt(amount)));
   },
   async rec(d) {
     const amount = readTxDraft(d); if (!amount) return;
     const day = Math.round(Number(d.day));
-    if (!(day >= 1 && day <= 31)) return toast('Day must be between 1 and 31.');
+    if (!(day >= 1 && day <= 31)) return toast(t('Day must be between 1 and 31.'));
     const old = d.id ? store.get(d.id) : null;
     await store.save({ ...(old || {}), id: d.id || 'rec:' + uid(), kind: 'rec', type: d.type, amount, catId: d.catId, note: (d.note || '').trim(), who: d.who || '', day,
       active: d.active, start: old?.start || curMonth(), startDate: old?.startDate || today() });
     await runRecurring();
-    closeSheet(); render(); toast('Recurring payment saved.');
+    closeSheet(); render(); toast(t('Recurring payment saved.'));
   },
   async budget(d) {
     const limit = parseAmount(d.amountText) || 0, id = 'budget:' + d.catId;
@@ -365,12 +471,19 @@ const SUBMIT = {
     else if (store.get(id)) await store.del(id);
     closeSheet(); render();
   },
+  async goal(d) {
+    const name = (d.name || '').trim(), target = parseAmount(d.targetText);
+    if (!name) return toast(t('Give it a name.'));
+    if (!target) return toast(t('Enter a target amount.'));
+    const saved = (parseAmount(d.savedText) || 0) + (parseAmount(d.addText) || 0);
+    await store.save({ id: d.id || 'goal:' + uid(), kind: 'goal', name, target, saved, deadline: /^\d{4}-\d{2}-\d{2}$/.test(d.deadline || '') ? d.deadline : '', icon: d.icon || '🎯' });
+    closeSheet(); render(); toast(t('Saved.'));
+  },
   async cat(d) {
     const name = (d.name || '').trim();
-    if (!name) return toast('Give the category a name.');
+    if (!name) return toast(t('Give it a name.'));
     const id = d.id || catId(name, d.type);
-    if (!d.id && store.get(id)) return toast('That category already exists.');
-    if (cats(d.type).some((c) => c.id !== id && c.name.toLowerCase() === name.toLowerCase())) return toast('That category already exists.');
+    if ((!d.id && store.get(id)) || cats(d.type).some((c) => c.id !== id && c.name.toLowerCase() === name.toLowerCase())) return toast(t('That category already exists.'));
     await store.save({ id, kind: 'cat', name, type: d.type, icon: d.icon || guessIcon(name, d.type) });
     closeSheet(); render();
   },
@@ -379,30 +492,37 @@ const SUBMIT = {
     await store.save({ id: 'settings', kind: 'settings', people: list });
     closeSheet(); render();
   },
+  lang() { closeSheet(); },
+  async lock(d) {
+    if (!/^\d{4}$/.test(d.pin1 || '')) return toast(t('PIN must be 4 digits.'));
+    if (d.pin1 !== d.pin2) return toast(t('The two PINs do not match.'));
+    await lock.setPin(d.pin1);
+    closeSheet(); render(); toast(t('App lock is on.'));
+  },
   async import(d) {
-    const fresh = d.txs.filter((t) => !store.raw(t.id));
+    const fresh = d.txs.filter((x) => !store.raw(x.id));
     const newCats = d.cats.filter((c) => !store.get(c.id));
     await store.saveMany([...newCats, ...fresh]);
     await store.setMeta('onboarded', true);
     ui.month = d.to?.slice(0, 7) <= curMonth() ? d.to.slice(0, 7) : curMonth(); ui.tab = 'home';
-    closeSheet(); render(); toast(`Imported ${fresh.length.toLocaleString('en-CA')} transactions.`);
+    closeSheet(); render(); toast(t('Imported transactions: {0}.', num(fresh.length)));
   },
   async confirm(d) { closeSheet(); await d.run(); render(); },
   async sync(d) {
     if (d.busy) return;
     let cfg;
-    if (d.mode === 'join') { cfg = sync.parsePairing(d.code || ''); if (!cfg) return toast('That pairing code is not valid.'); }
+    if (d.mode === 'join') { cfg = sync.parsePairing(d.code || ''); if (!cfg) return toast(t('That pairing code is not valid.')); }
     else {
       const url = (d.url || '').trim(), key = (d.key || '').trim();
-      if (!/^https?:\/\/.+/.test(url) || !key) return toast('Enter the project URL and key.');
+      if (!/^https?:\/\/.+/.test(url) || !key) return toast(t('Enter the project URL and key.'));
       cfg = { url, key, household: sync.newHousehold() };
     }
     d.busy = true; renderSheet();
     const ok = await sync.connect(cfg);
-    if (!ok) { const msg = sync.status.error; await sync.disconnect(); d.busy = false; renderSheet(); return toast('Could not connect: ' + msg); }
+    if (!ok) { const msg = sync.status.error; await sync.disconnect(); d.busy = false; renderSheet(); return toast(t('Could not connect: {0}', msg)); }
     await store.setMeta('onboarded', true);
     await runRecurring();
-    renderSheet(); render(); toast('Sync is on.');
+    renderSheet(); render(); toast(t('Sync is on.'));
   },
 };
 
@@ -426,29 +546,39 @@ async function saveFile(name, text, type) {
 
 /* ---------- actions ---------- */
 const ACTIONS = {
-  tab(el) { ui.tab = el.dataset.v; if (ui.tab !== 'list') { ui.filterCat = null; ui.q = ''; } render(); scrollTo(0, 0); },
+  tab(el) { ui.tab = el.dataset.v; ui.trendSel = null; if (ui.tab !== 'list') { ui.filterCat = null; ui.q = ''; } render(); scrollTo(0, 0); },
   month(el) { const m = addMonths(ui.month, Number(el.dataset.v)); if (m <= curMonth()) { ui.month = m; ui.trendSel = null; render(); } },
   'month-now'() { ui.month = curMonth(); ui.trendSel = null; render(); },
+  'open-year'() { ui.year = ui.month.slice(0, 4); ui.tab = 'year'; ui.trendSel = null; render(); scrollTo(0, 0); },
+  year(el) { const y = String(Number(ui.year) + Number(el.dataset.v)); if (y <= curMonth().slice(0, 4) && y >= firstYear()) { ui.year = y; ui.trendSel = null; render(); } },
+  'year-now'() { ui.year = curMonth().slice(0, 4); ui.trendSel = null; render(); },
   trend(el) { ui.trendSel = el.dataset.v; render(); },
   'filter-cat'(el) { ui.filterCat = el.dataset.id; ui.q = ''; ui.tab = 'list'; render(); scrollTo(0, 0); },
   'clear-filter'() { ui.filterCat = null; render(); },
   'new-tx'() {
-    if (!cats().length) return toast('Add a category first (More → Categories).');
-    const date = ui.month === curMonth() ? today() : `${ui.month}-01`;
+    if (!cats().length) return toast(t('Add a category first (More → Categories).'));
+    const date = ui.month === curMonth() || ui.tab === 'year' ? today() : `${ui.month}-01`;
     const who = people().includes(localStorage.getItem('pw-who')) ? localStorage.getItem('pw-who') : '';
     openSheet('tx', { type: 'expense', date, who, catId: ui.tab === 'list' && store.get(ui.filterCat)?.type === 'expense' ? ui.filterCat : null }, '[data-f=amountText]');
   },
-  'edit-tx'(el) { const t = store.get(el.dataset.id); if (t) openSheet('tx', { ...t, amountText: fmtInput(t.amount) }); },
-  'new-rec'() { if (!cats().length) return toast('Add a category first.'); openSheet('rec', { type: 'expense', day: new Date().getDate(), active: true }, '[data-f=amountText]'); },
+  'edit-tx'(el) { const x = store.get(el.dataset.id); if (x) openSheet('tx', { ...x, amountText: fmtInput(x.amount) }); },
+  'new-rec'() { if (!cats().length) return toast(t('Add a category first (More → Categories).')); openSheet('rec', { type: 'expense', day: new Date().getDate(), active: true }, '[data-f=amountText]'); },
   'edit-rec'(el) { const r = store.get(el.dataset.id); if (r) openSheet('rec', { ...r, amountText: fmtInput(r.amount) }); },
   'edit-budget'(el) { const b = store.get('budget:' + el.dataset.id); openSheet('budget', { catId: el.dataset.id, amountText: b ? fmtInput(b.limit) : '' }, '[data-f=amountText]'); },
+  'new-goal'() { openSheet('goal', { icon: '🎯' }, '#f-name'); },
+  'edit-goal'(el) { const g = store.get(el.dataset.id); if (g) openSheet('goal', { ...g, targetText: fmtInput(g.target), savedText: fmtInput(g.saved) }, '#f-add'); },
   'new-cat'() { openSheet('cat', { type: 'expense', icon: '🏷️' }, '#f-name'); },
   'edit-cat'(el) { const c = store.get(el.dataset.id); if (c) openSheet('cat', { ...c }); },
   'open-people'() { const p = people(); openSheet('people', { p1: p[0], p2: p[1] }); },
   'open-sync'() { openSheet('sync', { mode: 'join' }); },
+  'open-lang'() { openSheet('lang'); },
+  'toggle-lang'() { setLang(lang() === 'uk' ? 'en' : 'uk'); render(); },
+  'open-lock'() { openSheet('lock', {}, '#f-pin1'); },
+  'lock-off'() { lock.clearPin(); closeSheet(); render(); toast(t('App lock is off.')); },
   'close-sheet': closeSheet,
   set(el) {
     const d = ui.sheet.d, f = el.dataset.f; let v = el.dataset.v;
+    if (f === 'lang') { setLang(v); render(); return renderSheet(); }
     if (f === 'active') v = v === '1';
     d[f] = v;
     if (f === 'type' && d.catId && store.get(d.catId)?.type !== v) d.catId = null;
@@ -459,15 +589,15 @@ const ACTIONS = {
   async 'sheet-delete'() {
     const { type, d } = ui.sheet;
     if (type === 'cat') {
-      const used = txs().filter((t) => t.catId === d.id).length + store.all('rec').filter((r) => r.catId === d.id).length;
-      if (used) return toast(`${used} ${used === 1 ? 'entry uses' : 'entries use'} this category, so it cannot be deleted.`);
+      const used = txs().filter((x) => x.catId === d.id).length + store.all('rec').filter((r) => r.catId === d.id).length;
+      if (used) return toast(t('In use by {0} entries, so it cannot be deleted.', num(used)));
       if (store.get('budget:' + d.id)) await store.del('budget:' + d.id);
     }
     await store.del(d.id);
-    closeSheet(); render(); toast('Deleted.');
+    closeSheet(); render(); toast(t('Deleted.'));
   },
   async 'start-fresh'() {
-    await store.saveMany(DEFAULT_CATS.map(([name, type, icon]) => ({ id: catId(name, type), kind: 'cat', name, type, icon })));
+    await store.saveMany(DEFAULT_CATS.map(([name, type, icon]) => ({ id: catId(name, type), kind: 'cat', name: t(name), type, icon })));
     await store.setMeta('onboarded', true); render();
   },
   async 'import-csv'() {
@@ -475,8 +605,8 @@ const ACTIONS = {
     if (!file) return;
     try {
       const d = mapMonefy(await file.text());
-      if (!d.txs.length) return toast('No transactions found in that file.');
-      d.dupes = d.txs.filter((t) => store.raw(t.id)).length;
+      if (!d.txs.length) return toast(t('No transactions found in that file.'));
+      d.dupes = d.txs.filter((x) => store.raw(x.id)).length;
       openSheet('import', d);
     } catch (e) { toast(e.message); }
   },
@@ -493,17 +623,18 @@ const ACTIONS = {
       const ok = j.records.filter((r) => r && typeof r.id === 'string' && typeof r.kind === 'string' && Number.isFinite(r.updatedAt));
       const n = await store.merge(ok, { fromCloud: false });
       await store.setMeta('onboarded', true);
-      render(); toast(n ? `Restored ${n.toLocaleString('en-CA')} records.` : 'Everything in that backup is already here.');
-    } catch { toast('That file is not a Pennywise backup.'); }
+      render(); toast(n ? t('Restored records: {0}.', num(n)) : t('Everything in that backup is already here.'));
+    } catch { toast(t('That file is not a Pennywise backup.')); }
   },
   async 'export-csv'() { await saveFile(`pennywise-${today()}.csv`, toCSV(txs(), (id) => catOf(id).name), 'text/csv'); },
   erase() {
-    openSheet('confirm', { title: 'Erase data on this phone?', ok: 'Erase', text: `This removes all ${txs().length.toLocaleString('en-CA')} transactions from this phone and turns sync off here. ${sync.enabled() ? 'The other phone and the cloud copy are not affected.' : 'Save a backup first if you may want them back.'}`,
-      run: async () => { await sync.disconnect(); await store.wipe(); await store.setMeta('onboarded', false); ui.tab = 'home'; } });
+    openSheet('confirm', { title: t('Erase data on this phone?'), ok: t('Erase'),
+      text: `${t('This removes all transactions ({0}) from this phone and turns sync off here.', num(txs().length))} ${sync.enabled() ? t('The other phone and the cloud copy are not affected.') : t('Save a backup first if you may want them back.')}`,
+      run: eraseDevice });
   },
   async 'sync-now'() { await sync.syncNow(); renderSheet(); render(); },
-  async 'copy-code'() { try { await navigator.clipboard.writeText(sync.pairingCode()); toast('Pairing code copied.'); } catch { $('#f-code').select(); toast('Select and copy the code.'); } },
-  async 'sync-off'() { await sync.disconnect(); closeSheet(); render(); toast('Sync turned off on this phone.'); },
+  async 'copy-code'() { try { await navigator.clipboard.writeText(sync.pairingCode()); toast(t('Pairing code copied.')); } catch { $('#f-code').select(); toast(t('Select and copy the code.')); } },
+  async 'sync-off'() { await sync.disconnect(); closeSheet(); render(); toast(t('Sync turned off on this phone.')); },
 };
 
 document.addEventListener('click', (e) => {
@@ -522,6 +653,8 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && ui.sheet
 /* ---------- boot ---------- */
 (async () => {
   await store.init();
+  lock.start(() => openSheet('confirm', { title: t('Forgot your PIN?'), ok: t('Erase and reset'),
+    text: t('The only way back in is to erase the data on this phone. With sync on, you can then rejoin with the pairing code from the other phone.'), run: eraseDevice }));
   await runRecurring();
   store.onChange((src) => { if (src === 'remote') { runRecurring(); render(); } });
   sync.onStatus(() => { if (!store.isEmpty() || store.getMeta('onboarded')) renderChrome(); if (ui.tab === 'more') render(); if (ui.sheet?.type === 'sync' && !ui.sheet.d.busy) renderSheet(); });

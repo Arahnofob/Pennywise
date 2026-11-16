@@ -174,3 +174,29 @@ h2 { font-size: 13px; font-weight: 700; letter-spacing: .06em; text-transform: u
 .welcome h1 { margin: 8px 0 0; font-size: 28px; letter-spacing: -.02em; }
 .welcome p { color: var(--ink-2); margin: 0 0 14px; }
 .welcome .btn { flex: none; }
+
+/* stat tiles, goals, year review */
+.stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+.stat { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 12px 14px; min-width: 0; }
+.stat span { display: block; font-size: 12px; color: var(--ink-3); }
+.stat b { display: block; font-size: 19px; font-variant-numeric: tabular-nums; letter-spacing: -.01em; margin: 2px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stat small { display: block; font-size: 12px; color: var(--ink-2); overflow-wrap: anywhere; }
+.stat.wide { grid-column: 1 / -1; }
+.fill.goal { background: var(--inc); }
+.back { color: var(--accent); font-weight: 600; padding: 10px 4px; }
+.year-link { margin-top: 12px; padding: 14px; display: flex; justify-content: space-between; font-weight: 600; }
+
+/* lock screen */
+#lock { position: fixed; inset: 0; z-index: 50; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 24px; }
+#lock img { border-radius: 16px; }
+#lock h1 { font-size: 20px; margin: 6px 0; }
+.dots { display: flex; gap: 14px; }
+.dots i { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--ink-3); }
+.dots i.on { background: var(--ink); border-color: var(--ink); }
+.lock-msg { min-height: 20px; margin: 0; font-size: 14px; color: var(--ink-2); }
+.keys { display: grid; grid-template-columns: repeat(3, 72px); gap: 14px; margin: 6px 0 10px; }
+.keys button { width: 72px; height: 72px; border-radius: 50%; background: var(--surface); border: 1px solid var(--line); font-size: 26px; text-align: center; }
+.keys button:active { background: var(--surface-2); }
+#lock .btn { flex: none; }
+body.locked { overflow: hidden; }
+body.locked #sheet, body.locked #toast { z-index: 60; }

@@ -1,4 +1,5 @@
 // Small shared helpers: ids, dates, money, escaping.
+import { locale, t } from './i18n.js';
 export const uid = () =>
   (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
 
@@ -29,13 +30,18 @@ export function addMonths(ym, n) {
 export const daysInMonth = (ym) => { const [y, m] = ym.split('-').map(Number); return new Date(y, m, 0).getDate(); };
 export const monthLabel = (ym, short) => {
   const [y, m] = ym.split('-').map(Number);
-  return new Date(y, m - 1, 1).toLocaleDateString('en-CA', short ? { month: 'short' } : { month: 'long', year: 'numeric' });
+  const d = new Date(y, m - 1, 1);
+  if (short) return d.toLocaleDateString(locale(), { month: 'short' }).replace('.', '').slice(0, 3);
+  const s = d.toLocaleDateString(locale(), { month: 'long', year: 'numeric' }).replace(/\s*р\.$/, '');
+  return s[0].toUpperCase() + s.slice(1);
 };
+export const monthName = (ym) => { const s = monthLabel(ym).replace(/\s*\d{4}$/, ''); return s; };
 export const dayLabel = (iso) => {
   const [y, m, d] = iso.split('-').map(Number);
-  if (iso === today()) return 'Today';
-  return new Date(y, m - 1, d).toLocaleDateString('en-CA', { weekday: 'short', month: 'short', day: 'numeric', year: y === new Date().getFullYear() ? undefined : 'numeric' });
+  if (iso === today()) return t('Today');
+  return new Date(y, m - 1, d).toLocaleDateString(locale(), { weekday: 'short', month: 'short', day: 'numeric', year: y === new Date().getFullYear() ? undefined : 'numeric' }).replace(/\s*р\.$/, '');
 };
+export const num = (n) => n.toLocaleString(locale());
 
 // Money is stored as integer cents.
 const money = new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' });

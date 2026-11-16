@@ -1,5 +1,6 @@
 // CSV parsing (RFC 4180-ish) and the Monefy-export -> Pennywise mapping.
 import { hash, parseAmount, signOf } from './util.js';
+import { t } from './i18n.js';
 
 export function parseCSV(text) {
   text = text.replace(/^﻿/, '');
@@ -52,12 +53,12 @@ export const catId = (name, type) => 'cat:' + hash(type + '|' + name.trim().toLo
 // the same file twice (or on both phones) never creates duplicates.
 export function mapMonefy(text) {
   const rows = parseCSV(text);
-  if (rows.length < 2) throw new Error('The file is empty.');
+  if (rows.length < 2) throw new Error(t('The file is empty.'));
   const head = rows[0].map((h) => h.trim().toLowerCase());
   const col = (...names) => head.findIndex((h) => names.includes(h));
   const iDate = col('date'), iCat = col('category'), iAmt = col('amount'), iNote = col('description', 'note', 'notes');
   const iWho = col('who', 'person');
-  if (iDate < 0 || iCat < 0 || iAmt < 0) throw new Error('This does not look like a Monefy export (need date, category and amount columns).');
+  if (iDate < 0 || iCat < 0 || iAmt < 0) throw new Error(t('This does not look like a Monefy export (need date, category and amount columns).'));
   const cats = new Map(), txs = [], seen = new Map();
   let skipped = 0, from = null, to = null;
   for (const r of rows.slice(1)) {
