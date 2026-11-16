@@ -35,7 +35,10 @@ const firstGrapheme = (s) => {
 const pickedIcon = (d, fallback) => firstGrapheme(d.iconText) || d.icon || fallback;
 
 /* ---------- data helpers ---------- */
-const cats = (type) => store.all('cat').filter((c) => !type || c.type === type).sort((a, b) => a.name.localeCompare(b.name));
+// Hidden categories stay on past transactions but are not offered for new ones.
+const allCats = (type) => store.all('cat').filter((c) => !type || c.type === type).sort((a, b) => a.name.localeCompare(b.name));
+const cats = (type) => allCats(type).filter((c) => !c.hidden);
+const catUses = (id) => txs().filter((x) => x.catId === id).length + store.all('rec').filter((r) => r.catId === id).length;
 const catOf = (id) => store.get(id) || { name: t('Uncategorized'), icon: '❓' };
 const people = () => store.get('settings')?.people || [];
 const txs = () => store.all('tx');
@@ -329,7 +332,10 @@ function viewMore() {
     <div class="card pad"><div class="cat-grid">
       ${cats().map((c) => `<button class="cat" data-act="edit-cat" data-id="${esc(c.id)}"><span aria-hidden="true">${esc(c.icon)}</span>${esc(c.name)}</button>`).join('')}
       <button class="cat add" data-act="new-cat"><span aria-hidden="true">＋</span>${t('New')}</button>
-    </div></div>
+    </div>
+    ${allCats().some((c) => c.hidden) ? `<div class="icon-group">${t('Hidden categories')}</div><div class="cat-grid">
+      ${allCats().filter((c) => c.hidden).map((c) => `<button class="cat hidden-cat" data-act="edit-cat" data-id="${esc(c.id)}"><span aria-hidden="true">${esc(c.icon)}</span>${esc(c.name)}</button>`).join('')}</div>` : ''}
+    </div>
     <h2>${t('Household')}</h2>
     <div class="card list">
       ${item('open-people', '👥', t('People'), people().length ? esc(people().join(', ')) : t('Add your names to track who paid'))}
@@ -377,10 +383,21 @@ function render() {
 const seg = (f, cur, opts) => `<div class="seg" role="group">${opts.map(([v, l]) => `<button type="button" class="${cur === v ? 'on' : ''}" data-act="set" data-f="${f}" data-v="${v}" aria-pressed="${cur === v}">${l}</button>`).join('')}</div>`;
 const typeSeg = (d) => seg('type', d.type, [['expense', t('Expense')], ['income', t('Income.one')]]);
 const catPicker = (d) => {
-  const list = cats(d.type);
+  const cur = d.catId && store.get(d.catId);
+  const list = cats(d.type).concat(cur?.hidden && cur.type === d.type ? [cur] : []);
   return list.length ? `<div class="cat-grid pick">${list.map((c) => `<button type="button" class="cat ${d.catId === c.id ? 'on' : ''}" data-act="set" data-f="catId" data-v="${esc(c.id)}" aria-pressed="${d.catId === c.id}"><span aria-hidden="true">${esc(c.icon)}</span>${esc(c.name)}</button>`).join('')}</div>`
     : `<p class="hint">${t('No categories of this type yet. Add one under More → Categories.')}</p>`;
 };
+function catActions(d) {
+  if (!d.id) return actions(d);
+  const used = catUses(d.id), cur = store.get(d.id);
+  const left = cur?.hidden ? `<button type="button" class="btn" data-act="cat-hide" data-v="0">${t('Show again')}</button>`
+    : used ? `<button type="button" class="btn" data-act="cat-hide" data-v="1">${t('Hide')}</button>`
+    : `<button type="button" class="btn danger" data-act="sheet-delete">${t('Delete')}</button>`;
+  const hint = cur?.hidden ? t('Hidden: past transactions keep it, but it is not offered when adding new ones.')
+    : used ? t('Used by {0} entries, so it can only be hidden: past transactions keep it, and it is no longer offered for new ones.', num(used)) : '';
+  return `${hint ? `<p class="hint">${hint}</p>` : ''}<div class="actions">${left}<button type="submit" class="btn primary">${t('Save')}</button></div>`;
+}
 const whoPicker = (d) => people().length ? `<label>${t('Who')}</label>${seg('who', d.who || '', [['', t('Shared')], ...people().map((p) => [esc(p), esc(p)])])}` : '';
 const amountField = (d, f = 'amountText') => `<div class="amount"><span>$</span><input data-f="${f}" inputmode="decimal" placeholder="0.00" value="${esc(d[f] || '')}" aria-label="${t('Amount in Canadian dollars')}" autocomplete="off"></div>`;
 const moneyInput = (d, f, id) => `<input id="${id}" data-f="${f}" inputmode="decimal" placeholder="0.00" value="${esc(d[f] || '')}" autocomplete="off">`;
@@ -421,7 +438,7 @@ const SHEETS = {
   cat: (d) => [d.id ? t('Edit category') : t('New category'), `
     ${d.id ? '' : typeSeg(d)}
     <label for="f-name">${t('Name')}</label><input id="f-name" data-f="name" value="${esc(d.name || '')}" required maxlength="40" autocomplete="off">
-    <label>${t('Icon')}</label>${iconGrid(d)}${actions(d)}`],
+    <label>${t('Icon')}</label>${iconGrid(d)}${catActions(d)}`],
   people: (d) => [t('People'), `
     <label for="f-p1">${t('First person')}</label><input id="f-p1" data-f="p1" value="${esc(d.p1 || '')}" maxlength="24" autocomplete="off">
     <label for="f-p2">${t('Second person')}</label><input id="f-p2" data-f="p2" value="${esc(d.p2 || '')}" maxlength="24" autocomplete="off">
@@ -531,8 +548,9 @@ const SUBMIT = {
     const name = (d.name || '').trim();
     if (!name) return toast(t('Give it a name.'));
     const id = d.id || catId(name, d.type);
-    if ((!d.id && store.get(id)) || cats(d.type).some((c) => c.id !== id && c.name.toLowerCase() === name.toLowerCase())) return toast(t('That category already exists.'));
-    await store.save({ id, kind: 'cat', name, type: d.type, icon: pickedIcon(d, guessIcon(name, d.type)) });
+    const clash = (!d.id && store.get(id)) || allCats(d.type).find((c) => c.id !== id && c.name.toLowerCase() === name.toLowerCase());
+    if (clash) return toast(clash.hidden ? t('A hidden category has this name. Show it again under More → Categories.') : t('That category already exists.'));
+    await store.save({ ...(store.get(id) || {}), id, kind: 'cat', name, type: d.type, icon: pickedIcon(d, guessIcon(name, d.type)) });
     closeSheet(); render();
   },
   async people(d) {
@@ -627,6 +645,13 @@ const ACTIONS = {
   'toggle-lang'() { setLang(lang() === 'uk' ? 'en' : 'uk'); render(); },
   'open-lock'() { openSheet('lock', {}, '#f-pin1'); },
   'lock-off'() { lock.clearPin(); closeSheet(); render(); toast(t('App lock is off.')); },
+  async 'cat-hide'(el) {
+    const c = store.get(ui.sheet.d.id), hide = el.dataset.v === '1';
+    if (!c) return;
+    await store.save({ ...c, hidden: hide });
+    if (hide && store.get('budget:' + c.id)) await store.del('budget:' + c.id);
+    closeSheet(); render(); toast(hide ? t('Category hidden.') : t('Category is back.'));
+  },
   'close-sheet': closeSheet,
   set(el) {
     const d = ui.sheet.d, f = el.dataset.f; let v = el.dataset.v;
@@ -642,7 +667,7 @@ const ACTIONS = {
   async 'sheet-delete'() {
     const { type, d } = ui.sheet;
     if (type === 'cat') {
-      const used = txs().filter((x) => x.catId === d.id).length + store.all('rec').filter((r) => r.catId === d.id).length;
+      const used = catUses(d.id);
       if (used) return toast(t('In use by {0} entries, so it cannot be deleted.', num(used)));
       if (store.get('budget:' + d.id)) await store.del('budget:' + d.id);
     }

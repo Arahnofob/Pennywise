@@ -207,3 +207,4 @@ body.locked #sheet, body.locked #toast { z-index: 60; }
 .icon-picker .icon-grid button { background: var(--surface); }
 .icon-custom { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
 .icon-now { flex: none; width: 46px; height: 46px; border-radius: 12px; background: var(--accent-soft); display: grid; place-items: center; font-size: 24px; }
+.cat.hidden-cat { opacity: .6; }
