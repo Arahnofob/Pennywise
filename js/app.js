@@ -135,7 +135,7 @@ function txGroups(list) {
   const flush = () => {
     if (!buf.length) return;
     const net = sum(buf, 'income') - sum(buf, 'expense');
-    html += `<div class="day"><span>${dayLabel(day)}</span><span>${net < 0 ? '−' : '+'}${fmt(Math.abs(net))}</span></div><div class="card list">${buf.map(txRow).join('')}</div>`;
+    html += `<div class="day"><span>${dayLabel(day)}</span><span class="${net < 0 ? 'neg' : 'pos'}">${net < 0 ? '−' : '+'}${fmt(Math.abs(net))}</span></div><div class="card list">${buf.map(txRow).join('')}</div>`;
     buf = [];
   };
   for (const x of list) { if (x.date !== day) { flush(); day = x.date; } buf.push(x); }
@@ -182,10 +182,10 @@ function viewHome() {
   return `
     <section class="hero">
       <div class="hero-label">${t('Balance for {0}', monthLabel(ui.month))}</div>
-      <div class="hero-num">${signed(inc - exp)}</div>
+      <div class="hero-num ${inc - exp < 0 ? 'neg' : 'pos'}">${inc - exp < 0 ? '−' : '+'}${fmt(Math.abs(inc - exp))}</div>
       <div class="hero-pair">
-        <div><span>${t('Income')}</span><b>${fmt(inc)}</b></div>
-        <div><span>${t('Expenses')}</span><b>${fmt(exp)}</b></div>
+        <div><span>${t('Income')}</span><b class="pos">+${fmt(inc)}</b></div>
+        <div><span>${t('Expenses')}</span><b class="neg">−${fmt(exp)}</b></div>
       </div>
     </section>
     ${budgetStrip}
@@ -225,10 +225,10 @@ function viewYear() {
   return `${back}
     <section class="hero">
       <div class="hero-label">${net >= 0 ? t('Saved in {0}', y) : t('Overspent in {0}', y)}</div>
-      <div class="hero-num">${fmt(Math.abs(net))}</div>
+      <div class="hero-num ${net < 0 ? 'neg' : 'pos'}">${net < 0 ? '−' : '+'}${fmt(Math.abs(net))}</div>
       <div class="hero-pair">
-        <div><span>${t('Income')}</span><b>${fmt(inc)}</b></div>
-        <div><span>${t('Expenses')}</span><b>${fmt(exp)}</b></div>
+        <div><span>${t('Income')}</span><b class="pos">+${fmt(inc)}</b></div>
+        <div><span>${t('Expenses')}</span><b class="neg">−${fmt(exp)}</b></div>
       </div>
     </section>
     <div class="stats">
@@ -258,7 +258,7 @@ function viewList() {
     <div id="list-body">
     ${fc ? `<button class="chip on" data-act="clear-filter">${esc(fc.icon)} ${esc(fc.name)} ✕</button>` : ''}
     <div class="totals"><span>${t('Transactions: {0}', num(list.length))}${q ? ' ' + t('(all months)') : ''}</span>
-      <span>+${fmt(sum(list, 'income'))} &nbsp; −${fmt(sum(list, 'expense'))}</span></div>
+      <span><span class="pos">+${fmt(sum(list, 'income'))}</span> &nbsp; <span class="neg">−${fmt(sum(list, 'expense'))}</span></span></div>
     ${shown.length ? txGroups(shown) : `<div class="card empty">${q || fc ? t('Nothing matches.') : t('No transactions in {0}.', monthLabel(ui.month))}</div>`}
     ${list.length > shown.length ? `<p class="hint">${t('Showing the newest 300. Refine the search to see older ones.')}</p>` : ''}
     </div>`;
@@ -325,7 +325,7 @@ function viewMore() {
     <div class="card list">
       ${recs.map((r) => { const c = catOf(r.catId); return `<button class="tx" data-act="edit-rec" data-id="${esc(r.id)}"><span class="ico" aria-hidden="true">${esc(c.icon)}</span>
         <span class="tx-main"><span class="tx-title">${esc(r.note || c.name)}</span><span class="tx-sub">${isBiweekly(r) ? t('Every 2 weeks') : t('Day {0} of every month', r.day)}${!r.active ? ' · ' + t('paused') : nextRun(r) ? ' · ' + t('next {0}', dayLabel(nextRun(r))) : ''}</span></span>
-        <span class="amt">${r.type === 'expense' ? '−' : '+'}${fmt(r.amount)}</span></button>`; }).join('')}
+        <span class="amt ${r.type}">${r.type === 'expense' ? '−' : '+'}${fmt(r.amount)}</span></button>`; }).join('')}
       ${item('new-rec', '＋', t('Add recurring payment'), t('Rent, subscriptions, salary…'))}
     </div>
     <h2>${t('Categories')}</h2>
